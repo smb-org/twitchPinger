@@ -1,5 +1,5 @@
 {
-  "name": "marble-notification",
+  "name": "twitch-pinger",
   "version": "0.0.0",
   "private": true,
   "type": "module",

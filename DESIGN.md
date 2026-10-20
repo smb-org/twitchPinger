@@ -1,6 +1,6 @@
 ---
 # gstack: design-md-format=spec
-name: marbleNotification
+name: twitchPinger
 description: Ruhige Leitwarte am Abend. Still, solange nichts passiert; Bernstein, wenn ein Rennen offen ist.
 colors:
   background: "#141a24"
@@ -61,14 +61,14 @@ components:
     backgroundColor: "{colors.surface}"
 ---
 
-# marbleNotification
+# twitchPinger
 
 ## Overview
 
-**Creative North Star:** Eine ruhige Leitwarte am Abend. Wer marbleNotification öffnet, soll sofort spüren: „Ich verpasse nichts mehr."
+**Creative North Star:** Eine ruhige Leitwarte am Abend. Wer twitchPinger öffnet, soll sofort spüren: „Ich verpasse nichts mehr."
 **Product context:** Einladungsbasiertes Werkzeug für bis zu 100 Twitch-Viewer. Regeln erkennen Chat-Auslöser (z. B. `!play`) in bis zu 50 Channels und melden per ntfy/Discord. Genutzt abends am PC neben dem Stream, kurz am Handy.
 **Mode per surface:** Alle Seiten sind Operate (Übersicht, Regel-Editor, Channels, Ziele, Einladungen, Admin). Die Einladungsseite ist ein kurzer Persuade-Moment, bleibt aber im selben System.
-**Reference:** Mockups unter `~/.gstack/projects/marbleNotification/designs/` (rule-builder-20261020/v1.jpg, design-system-20261020/a.jpg).
+**Reference:** Mockups unter `~/.gstack/projects/twitchPinger/designs/` (rule-builder-20261020/v1.jpg, design-system-20261020/a.jpg).
 **Key characteristics:**
 - Monochrom und still, bis etwas passiert.
 - Bernstein ist ein Signal, keine Dekoration.

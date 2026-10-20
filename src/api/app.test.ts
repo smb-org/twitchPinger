@@ -423,13 +423,13 @@ test('preview: only own channels', async () => {
   assert.equal((await a.req('/preview?channel=other_chan', { cookie: alice })).status, 404);
 });
 
-test('targets: ntfy gets generated mn- topic, tokens never returned, url check, test, delete', async () => {
+test('targets: ntfy gets generated tp- topic, tokens never returned, url check, test, delete', async () => {
   const a = setup();
   const { alice, admin } = await member(a);
   const create = await a.req('/targets', { method: 'POST', cookie: alice, body: { kind: 'ntfy', name: 'phone' } });
   assert.equal(create.status, 201);
   const t = (await j(create)).target;
-  assert.match(t.url, /^https:\/\/ntfy\.example\/mn-[a-z2-7]{24}$/);
+  assert.match(t.url, /^https:\/\/ntfy\.example\/tp-[a-z2-7]{24}$/);
   assert.equal(a.repo.getTarget(t.id)!.token, null);
   assert.ok(!('token' in t));
 

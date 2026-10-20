@@ -1,6 +1,6 @@
-# marbleNotification
+# twitchPinger
 
-Design-Doc: `docs/designs/marble-notification.md` (inkl. Eng- und Design-Review, Implementation Tasks T1–T10, DT1–DT9).
+Design-Doc: `docs/designs/twitch-pinger.md` (inkl. Eng- und Design-Review, Implementation Tasks T1–T10, DT1–DT9).
 
 ## Design System
 Read DESIGN.md before visual or UI work: it defines the fonts, colors, spacing, and

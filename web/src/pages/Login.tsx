@@ -15,7 +15,7 @@ function Frame({ title, lead, href, error }: { title: string; lead: string; href
   useTitle(title);
   return (
     <main class="solo" id="main">
-      <p class="wordmark">marbleNotification</p>
+      <p class="wordmark">twitchPinger</p>
       <h1>{title}</h1>
       <p class="lead">{lead}</p>
       <p class="err solo-err" role="alert">{error}</p>
@@ -40,7 +40,7 @@ export function InvitePage({ code }: { code: string }) {
   return (
     <Frame
       title="Du bist eingeladen"
-      lead="marbleNotification beobachtet Twitch-Chats und meldet dir per Handy oder Discord, wenn deine Regeln greifen, zum Beispiel wenn bei den Marbles ein Rennen offen ist. Melde dich mit Twitch an, um die Einladung einzulösen. Wir lesen nur, wem du folgst, und speichern kein Twitch-Token."
+      lead="twitchPinger beobachtet Twitch-Chats und meldet dir per Handy oder Discord, wenn deine Regeln greifen, zum Beispiel wenn bei den Marbles ein Rennen offen ist. Melde dich mit Twitch an, um die Einladung einzulösen. Wir lesen nur, wem du folgst, und speichern kein Twitch-Token."
       href={`/api/auth/login?invite=${encodeURIComponent(code)}`}
     />
   );

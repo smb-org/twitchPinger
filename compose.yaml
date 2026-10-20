@@ -1,3 +1,4 @@
+name: twitch-pinger
 services:
   app:
     build: .
@@ -17,8 +18,8 @@ services:
     command: serve
     environment:
       NTFY_BASE_URL: ${NTFY_BASE_URL}
-      NTFY_AUTH_USERS: "marble:${NTFY_MARBLE_PASS_HASH}:user"
-      NTFY_AUTH_TOKENS: "marble:${NTFY_APP_TOKEN}:app"
+      NTFY_AUTH_USERS: "pinger:${NTFY_PINGER_PASS_HASH}:user"
+      NTFY_AUTH_TOKENS: "pinger:${NTFY_APP_TOKEN}:app"
     volumes:
       - ./ntfy/server.yml:/etc/ntfy/server.yml:ro
       - ntfy-cache:/var/cache/ntfy

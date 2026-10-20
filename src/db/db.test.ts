@@ -20,7 +20,7 @@ const ruleOf = (id: string, ownerId: string, channelIds: string[] = [], targetId
 });
 
 test('migrations set user_version and are idempotent', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mn-'));
+  const dir = mkdtempSync(join(tmpdir(), 'tp-'));
   openDb(join(dir, 'a.db')).close();
   const db = openDb(join(dir, 'a.db'));
   assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 2);
@@ -146,7 +146,7 @@ test('deleteTarget removes it from rules; counts', () => {
 
 test('vacuumInto writes a dated file and rotates', () => {
   const { db } = setup();
-  const dir = join(mkdtempSync(join(tmpdir(), 'mn-')), 'bk');
+  const dir = join(mkdtempSync(join(tmpdir(), 'tp-')), 'bk');
   let last = '';
   for (let d = 1; d <= 10; d++) last = vacuumInto(db, dir, 7, new Date(Date.UTC(2026, 9, d)));
   assert.ok(existsSync(last));

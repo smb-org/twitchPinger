@@ -5,7 +5,7 @@ import type { DeliveryResult } from './deliverer.ts';
 import { hit } from './fixtures.ts';
 import type { Target } from '../types.ts';
 
-const target = (o: Partial<Target> = {}): Target => ({ id: 't1', ownerId: 'u', kind: 'ntfy', name: 'n', url: 'https://ntfy.example.org/mn-x', token: null, failCount: 0, status: 'ok', ...o });
+const target = (o: Partial<Target> = {}): Target => ({ id: 't1', ownerId: 'u', kind: 'ntfy', name: 'n', url: 'https://ntfy.example.org/tp-x', token: null, failCount: 0, status: 'ok', ...o });
 
 function setup(statuses: (number | Error | { status: number; retryAfter?: string })[] = [], options: { getTarget?: (id: string) => Target | undefined; sleep?: (ms: number) => Promise<void>; discordLink?: { discordUserId: string; channelId: string | null } | undefined; discordStatuses?: { status: number; body?: string; retryAfter?: string }[]; discordAvailable?: boolean } = {}) {
   let t = 0;
@@ -292,7 +292,7 @@ test('invalid url fails fast; token header; test message', async () => {
   s = setup();
   const r = await s.d.sendTest(target());
   assert.deepEqual(r, { ok: true });
-  assert.match(s.posts[0]!.body, /Test von marbleNotification/);
+  assert.match(s.posts[0]!.body, /Test von twitchPinger/);
 });
 
 test('throwing onResult is logged, not unhandled; flushAll still resolves', async () => {

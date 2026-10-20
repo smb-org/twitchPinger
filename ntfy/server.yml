@@ -1,5 +1,5 @@
 # base-url is set via NTFY_BASE_URL env in compose (NTFY_BASE_URL overrides this file)
-base-url: "https://ntfy.example.org"
+base-url: "https://ntfy.esembe.app"
 listen-http: ":80"
 behind-proxy: true
 upstream-base-url: "https://ntfy.sh"
@@ -10,9 +10,9 @@ cache-file: /var/cache/ntfy/cache.db
 visitor-request-limit-burst: 1000
 visitor-request-limit-replenish: "1s"
 # Users and tokens contain secrets and come from the environment (compose.yaml):
-#   NTFY_AUTH_USERS  = marble:<bcrypt hash>:user
-#   NTFY_AUTH_TOKENS = marble:<NTFY_APP_TOKEN>:app
-# Only the app user may publish; anonymous clients may only read unguessable mn-* topics.
+#   NTFY_AUTH_USERS  = pinger:<bcrypt hash>:user
+#   NTFY_AUTH_TOKENS = pinger:<NTFY_APP_TOKEN>:app
+# Only the app user may publish; anonymous clients may only read unguessable tp-* topics.
 auth-access:
-  - "marble:mn-*:rw"
-  - "everyone:mn-*:ro"
+  - "pinger:tp-*:rw"
+  - "everyone:tp-*:ro"

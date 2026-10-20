@@ -27,7 +27,7 @@ test('checkTargetUrl', () => {
   assert.equal(ok('discord', 'https://discordapp.com/api/webhooks/1/x'), true);
   assert.equal(ok('discord', 'https://discord.com/other'), false);
   assert.equal(ok('discord', 'https://u:p@discord.com/api/webhooks/1/x'), false);
-  assert.equal(ok('ntfy', 'https://ntfy.example.org/mn-abc'), true);
+  assert.equal(ok('ntfy', 'https://ntfy.example.org/tp-abc'), true);
   assert.equal(ok('ntfy', 'https://127.0.0.1/x'), false);
   assert.equal(ok('ntfy', 'https://[::1]/x'), false);
   assert.equal(ok('ntfy', 'https://1.1.1.1/x'), true);

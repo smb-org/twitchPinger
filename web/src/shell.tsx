@@ -81,7 +81,7 @@ export function Shell({ children }: { children: ComponentChildren }) {
       <a class="skip" href="#main">Zum Inhalt</a>
       <StatusStrip />
       <nav class="nav" aria-label="Hauptnavigation">
-        <Link href="/" class="wordmark">marbleNotification</Link>
+        <Link href="/" class="wordmark">twitchPinger</Link>
         {NAV.map(([to, label]) => <Link key={to} href={to} aria-current={active(to) ? 'page' : undefined}>{label}</Link>)}
       </nav>
       <main id="main" tabIndex={-1}>{children}</main>

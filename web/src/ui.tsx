@@ -83,7 +83,7 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = [], every = 0
 }
 
 export function useTitle(t: string) {
-  useEffect(() => { document.title = `${t} · marbleNotification`; }, [t]);
+  useEffect(() => { document.title = `${t} · twitchPinger`; }, [t]);
 }
 
 export const val = (e: Event) => (e.target as HTMLInputElement).value;

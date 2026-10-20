@@ -367,7 +367,7 @@ export function createApi(deps: ApiDeps) {
     const name = parseName(b.name);
     let url = typeof b.url === 'string' ? b.url.trim() : '';
     if (b.kind === 'discord_dm') url = '';
-    else if (!url && b.kind === 'ntfy') url = `${config.ntfyBaseUrl}/mn-${topic()}`;
+    else if (!url && b.kind === 'ntfy') url = `${config.ntfyBaseUrl}/tp-${topic()}`;
     else if (!url) throw bad('url', 'Die URL fehlt.');
     else await checkUrl(b.kind, url);
     const t = { id: randomId(), ownerId: u.id, kind: b.kind as TargetKind, name, url, token: null };

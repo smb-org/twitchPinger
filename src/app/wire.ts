@@ -144,10 +144,10 @@ export function createService(deps: ServiceDeps) {
     const silent = h.connected && h.desired >= 1 && t - (h.lastMessageAt ?? h.since) > SILENT_MS;
     if ((down || silent) && !alarmed) {
       alarmed = true;
-      await alert.send('marbleNotification Alarm', down ? 'Chat-Verbindung seit über 2 Minuten getrennt.' : 'Seit über 10 Minuten keine Chat-Nachricht in allen Kanälen.');
+      await alert.send('twitchPinger Alarm', down ? 'Chat-Verbindung seit über 2 Minuten getrennt.' : 'Seit über 10 Minuten keine Chat-Nachricht in allen Kanälen.');
     } else if (!down && !silent && alarmed) {
       alarmed = false;
-      await alert.send('marbleNotification Entwarnung', 'Chat-Verbindung wieder in Ordnung.');
+      await alert.send('twitchPinger Entwarnung', 'Chat-Verbindung wieder in Ordnung.');
     }
   }
 
@@ -171,7 +171,7 @@ export function createService(deps: ServiceDeps) {
       backupFailed = false;
     } catch (e) {
       log(`backup failed: ${e}`);
-      if (!backupFailed) { backupFailed = true; await alert.send('marbleNotification Backup fehlgeschlagen', String(e instanceof Error ? e.message : e)); }
+      if (!backupFailed) { backupFailed = true; await alert.send('twitchPinger Backup fehlgeschlagen', String(e instanceof Error ? e.message : e)); }
     }
   }
 

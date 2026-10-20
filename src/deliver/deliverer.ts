@@ -28,7 +28,7 @@ const WINDOW_MS = 10_000;
 const TIMEOUT_MS = 5_000;
 const MAX_RETRY_AFTER_MS = 300_000;
 const RETRY_AFTER_TOO_LONG = 'Retry-After exceeds five-minute retry limit';
-const TEST_TEXT = 'Test von marbleNotification – wenn du das liest, kommt alles an.';
+const TEST_TEXT = 'Test von twitchPinger – wenn du das liest, kommt alles an.';
 const DISCORD_API = 'https://discord.com/api/v10';
 const DISCORD_DM_HINT = 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.';
 const DISCORD_UNLINKED = 'Discord nicht verbunden. Verbinde dein Konto erneut.';
@@ -209,7 +209,7 @@ export function createDeliverer(deps: DelivererDeps) {
       }
     },
     async sendTest(t: Target): Promise<{ ok: boolean; error?: string; errorCode?: number }> {
-      const f: Formatted = { title: 'marbleNotification', text: TEST_TEXT, url: 'https://twitch.tv' };
+      const f: Formatted = { title: 'twitchPinger', text: TEST_TEXT, url: 'https://twitch.tv' };
       const r = await send(t, f);
       return r.ok ? { ok: true } : { ok: false, error: r.error, ...(r.errorCode !== undefined ? { errorCode: r.errorCode } : {}) };
     },
