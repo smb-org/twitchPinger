@@ -133,6 +133,8 @@ legend { padding: 0; }
 table.rules { width: 100%; border-collapse: collapse; }
 .rules th { text-align: left; font-size: 0.875rem; font-weight: 500; color: var(--muted); padding: 8px 12px 8px 0; border-bottom: 1px solid var(--line); }
 .rules td { padding: 6px 12px 6px 0; height: 52px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.rules td.live-cell { max-width: 1px; overflow: hidden; }
+.live-line { display: block; height: 1.3em; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rules .sub { display: none; font-size: 0.8125rem; color: var(--muted); }
 .rule-name { display: inline-block; padding: 8px 0; }
 .rule-test { display: flex; flex-direction: column; align-items: flex-start; width: 96px; min-width: 0; }

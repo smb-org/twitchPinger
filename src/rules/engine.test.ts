@@ -51,10 +51,15 @@ test('rule edit resets window and cooldown; unchanged keeps state', () => {
   e.setRules([{ ...r, updatedAt: 2 }]);
   e.ingest(msg('!play'));
   assert.equal(hits.length, 2);
-  e.setRules([]);
-  e.setRules([{ ...r, updatedAt: 2 }]);
-  e.ingest(msg('!play')); // dropped state, re-added
+  assert.equal(e.live('r1')[0]?.tally?.mentions, 1);
+  e.setRules([{ ...r, updatedAt: 3 }]);
+  assert.deepEqual(e.live('r1'), []); // edited rule dropped burst and tally state
+  e.ingest(msg('!play'));
   assert.equal(hits.length, 3);
+  e.setRules([]);
+  e.setRules([{ ...r, updatedAt: 3 }]);
+  e.ingest(msg('!play')); // dropped state, re-added
+  assert.equal(hits.length, 4);
 });
 
 test('disabled rule and other channels are ignored', () => {
@@ -87,4 +92,52 @@ test('cooldown and burst window are per channel', () => {
   tick(30_000);
   for (let i = 0; i < 10; i++) e.ingest(msg('!play', { channelId: 'c2', channel: 'other', userId: `u${i}` }));
   assert.deepEqual(hits.map((h) => h.channelId), ['c1', 'c2']);
+});
+
+test('live tally counts firing-window mentions and later mentions through cooldown, then resets on fire', () => {
+  const { e, hits, tick } = setup();
+  e.setRules([rule({ burst: { threshold: 2, windowSec: 60, countBy: 'users' }, cooldownSec: 60 })]);
+  e.ingest(msg('!play', { userId: 'u1' }));
+  e.ingest(msg('!play again', { userId: 'u1' }));
+  e.ingest(msg('!play', { userId: 'u2' }));
+  assert.equal(hits.length, 1);
+  assert.deepEqual(e.live('r1'), [{ channelId: 'c1', inWindow: 0, cooling: true, tally: { since: 1_000_000, mentions: 3, chatters: 2 } }]);
+
+  e.ingest(msg('!play', { userId: 'u2' }));
+  e.ingest(msg('!play', { userId: 'u3' }));
+  assert.deepEqual(e.live('r1')[0]?.tally, { since: 1_000_000, mentions: 5, chatters: 3 });
+
+  tick(300_000);
+  e.ingest(msg('!play', { userId: 'u4' }));
+  e.ingest(msg('!play', { userId: 'u5' }));
+  assert.equal(hits.length, 2);
+  assert.deepEqual(e.live('r1'), [{ channelId: 'c1', inWindow: 0, cooling: true, tally: { since: 1_300_000, mentions: 2, chatters: 2 } }]);
+});
+
+test('live reports partial burst progress without changing firing behavior', () => {
+  const { e, hits } = setup();
+  e.setRules([rule({ burst: { threshold: 3, windowSec: 60, countBy: 'users' }, cooldownSec: 60 })]);
+  e.ingest(msg('!play', { userId: 'u1' }));
+  assert.deepEqual(e.live('r1'), [{ channelId: 'c1', inWindow: 1, cooling: false, tally: null }]);
+  e.live('r1');
+  e.ingest(msg('!play', { userId: 'u1' }));
+  assert.equal(e.live('r1')[0]?.inWindow, 1);
+  e.ingest(msg('!play', { userId: 'u2' }));
+  assert.equal(e.live('r1')[0]?.inWindow, 2);
+  assert.equal(hits.length, 0);
+  e.live('r1');
+  e.ingest(msg('!play', { userId: 'u3' }));
+  assert.equal(hits.length, 1);
+  assert.deepEqual(e.live('r1')[0], { channelId: 'c1', inWindow: 0, cooling: true, tally: { since: 1_000_000, mentions: 4, chatters: 3 } });
+});
+
+test('live progress counts messages when countBy is messages', () => {
+  const { e, hits } = setup();
+  e.setRules([rule({ burst: { threshold: 3, windowSec: 60, countBy: 'messages' } })]);
+  e.ingest(msg('!play', { userId: 'u1' }));
+  e.ingest(msg('!play', { userId: 'u1' }));
+  assert.equal(e.live('r1')[0]?.inWindow, 2);
+  e.ingest(msg('!play', { userId: 'u2' }));
+  assert.equal(hits.length, 1);
+  assert.equal(e.live('r1')[0]?.tally?.mentions, 3);
 });

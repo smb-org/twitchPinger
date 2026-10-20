@@ -3,11 +3,12 @@ import { api, meStore } from '../api.ts';
 import type { Channel, OverviewRule, Ping, TargetDto } from '../api.ts';
 import { Link } from '../router.tsx';
 import { RuleTestButton } from '../rule-test.tsx';
-import { Dot, LoadError, PageHead, Placeholder, ago, hhmm, resting, toast, useLoad, useTitle } from '../ui.tsx';
+import { Dot, LoadError, PageHead, Placeholder, ago, hhmm, toast, useLoad, useTitle } from '../ui.tsx';
 
 interface Data { rules: OverviewRule[]; lastPings: Ping[] }
 const GLOW_MS = 10_000;
 const lastTs = (r: OverviewRule) => Math.max(0, ...r.lastFired.map((l) => l.ts));
+const liveTitle = 'Fenster: Treffer im aktuellen Zeitfenster / Schwelle. Seit Auslösung: alle Erwähnungen inkl. Cooldown.';
 
 function status(r: OverviewRule): { kind: 'ok' | 'off' | 'warn'; text: string } {
   if (!r.enabled) return { kind: 'off', text: 'pausiert' };
@@ -70,7 +71,7 @@ export function Overview() {
           {rules && rules.length > 0 && (
             <table class="rules">
               <thead>
-                <tr><th>Name</th><th class="hide-sm">Channels</th><th>Status</th><th>Zuletzt ausgelöst</th><th class="hide-sm">Cooldown</th><th>Aktion</th></tr>
+                <tr><th>Name</th><th class="hide-sm">Channels</th><th>Status</th><th>Zuletzt ausgelöst</th><th class="hide-sm" title={liveTitle}>Live</th><th>Aktion</th></tr>
               </thead>
               <tbody>
                 {rules.map((r) => {
@@ -85,7 +86,15 @@ export function Overview() {
                       <td class="mono hide-sm">{chanNames(r)}</td>
                       <td><Dot kind={s.kind} /> {s.text}</td>
                       <td class="mono">{ts ? ago(ts) : 'nie'}</td>
-                      <td class="mono hide-sm">{resting(r.lastFired) || '–'}</td>
+                      <td class="mono hide-sm live-cell" title={liveTitle}>
+                        {r.live.length ? r.live.map((ch) => {
+                          const fired = r.lastFired.find((x) => x.channelId === ch.channelId);
+                          const restAt = fired && fired.cooldownUntil > Date.now() ? `ruht bis ${hhmm(fired.cooldownUntil)}` : '';
+                          const tally = ch.tally ? `${ch.tally.mentions}× · ${ch.tally.chatters} Chatter seit ${hhmm(ch.tally.since)}` : '';
+                          const parts = [ch.channel ?? '?', restAt, ch.cooling ? '' : `${ch.inWindow}/${ch.threshold}`, tally].filter(Boolean);
+                          return <span class="live-line" key={ch.channelId}>{parts.join(' · ')}</span>;
+                        }) : <span class="live-line">–</span>}
+                      </td>
                       <td class="test-action"><RuleTestButton id={r.id} targets={targetData?.targets} /></td>
                     </tr>
                   );

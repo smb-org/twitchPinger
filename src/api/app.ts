@@ -241,9 +241,20 @@ export function createApi(deps: ApiDeps) {
 
   app.get('/overview', (c) => {
     const channels = new Map(repo.listUserChannels(me(c).id).map((ch) => [ch.id, ch]));
+    const currentTime = now();
     const rules = repo.listRules(me(c).id).map((r) => {
       const lastFired = repo.listLastFired(r.id).map((l) => ({ channelId: l.channelId, channel: channels.get(l.channelId)?.login ?? null, ts: l.ts, cooldownUntil: l.ts + r.cooldownSec * 1000 }));
-      return { ...r, lastFired };
+      const firedByChannel = new Map(lastFired.map((x) => [x.channelId, x]));
+      const live = new Map((deps.live?.(r.id) ?? []).map((x) => [x.channelId, x]));
+      return {
+        ...r,
+        lastFired,
+        live: r.channelIds.map((channelId) => {
+          const current = live.get(channelId);
+          const fired = firedByChannel.get(channelId);
+          return { channelId, channel: channels.get(channelId)?.login ?? null, inWindow: current?.inWindow ?? 0, threshold: r.burst.threshold, cooling: current?.cooling ?? (!!fired && fired.cooldownUntil > currentTime), tally: current?.tally ?? null };
+        }),
+      };
     });
     return c.json({ rules, lastPings: repo.lastPings(me(c).id, 10) });
   });

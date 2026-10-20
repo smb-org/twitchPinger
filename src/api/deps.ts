@@ -46,6 +46,7 @@ export interface ApiDeps {
   checkTargetUrl(kind: TargetKind, url: string): string | null | Promise<string | null>;
   /** Called after every mutation that affects channels, rules or users. */
   onConfigChanged(immediate?: boolean): void;
+  live?(ruleId: string): { channelId: string; inWindow: number; cooling: boolean; tally: { since: number; mentions: number; chatters: number } | null }[];
   /** Clock in ms, injectable for tests. */
   now?(): number;
 }

@@ -592,10 +592,27 @@ test('overview: rules with cooldown info and last pings; me counts', async () =>
   const o = await j(await a.req('/overview', { cookie: alice }));
   assert.equal(o.rules[0].lastFired[0].cooldownUntil, 1_060_000);
   assert.equal(o.rules[0].lastFired[0].channel, 'marbles_one');
+  assert.equal(o.rules[0].live[0].cooling, true);
+  assert.equal(o.rules[0].live[0].inWindow, 0);
+  assert.equal(o.rules[0].live[0].tally, null);
   assert.equal(o.lastPings.length, 1);
   const me = await j(await a.req('/me', { cookie: alice }));
   assert.deepEqual(me.onboarding, { hasChannel: true, hasTarget: false, hasRule: true });
   assert.equal(me.limits.MAX_RULES_PER_USER, 20);
+});
+
+test('overview includes per-channel live state and burst threshold', async () => {
+  const a = setup({}, {}, { live: () => [{ channelId: 'ch-marbles_one', inWindow: 3, cooling: false, tally: { since: 900_000, mentions: 37, chatters: 21 } }] });
+  const { alice } = await member(a);
+  const one = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_one' } }))).channel;
+  const two = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_two' } }))).channel;
+  await a.req('/rules', { method: 'POST', cookie: alice, body: { name: 'r', matcher: { mode: 'contains', pattern: 'x' }, burst: { threshold: 5, windowSec: 60, countBy: 'users' }, channelIds: [one.id, two.id] } });
+
+  const o = await j(await a.req('/overview', { cookie: alice }));
+  assert.deepEqual(o.rules[0].live, [
+    { channelId: one.id, channel: 'marbles_one', inWindow: 3, threshold: 5, cooling: false, tally: { since: 900_000, mentions: 37, chatters: 21 } },
+    { channelId: two.id, channel: 'marbles_two', inWindow: 0, threshold: 5, cooling: false, tally: null },
+  ]);
 });
 
 test('admin: lock semantics, unlock, authorization, onConfigChanged', async () => {

@@ -15,8 +15,19 @@ interface Compiled {
   rule: Rule;
   match: ReturnType<typeof compileMatcher>;
   states: Map<string, BurstState>;
+  windows: Map<string, Array<{ userId: string; t: number }>>;
+  tallies: Map<string, Tally>;
   /** Persisted last-fired seeds cooldown only for rules unseen before (restart); edits ignore it. */
   seedFromDb: boolean;
+}
+
+interface Tally { since: number; mentions: number; chatters: Set<string> }
+
+const CHATTER_LIMIT = 10_000;
+
+function addChatter(chatters: Set<string>, userId: string): void {
+  // ponytail: cap live chatter IDs at the 10,000-entry ceiling.
+  if (chatters.size < CHATTER_LIMIT || chatters.has(userId)) chatters.add(userId);
 }
 
 export function createEngine(deps: EngineDeps) {
@@ -38,7 +49,7 @@ export function createEngine(deps: EngineDeps) {
         } else {
           // Edited or new: fresh state, persisted last-fired ignored only when it replaces an existing rule.
           try {
-            next.set(rule.id, { rule, match: compileMatcher(rule.matcher), states: new Map(), seedFromDb: !old });
+            next.set(rule.id, { rule, match: compileMatcher(rule.matcher), states: new Map(), windows: new Map(), tallies: new Map(), seedFromDb: !old });
           } catch (err) {
             (deps.log ?? console.error)(`rule ${rule.id} skipped, matcher does not compile: ${err}`);
           }
@@ -67,9 +78,26 @@ export function createEngine(deps: EngineDeps) {
           st = createBurstState(last === null ? 0 : last + cooldownMs(rule.cooldownSec));
           c.states.set(msg.channelId, st);
         }
-        const r = step(st, rule.burst, rule.cooldownSec, msg, deps.now());
+        const now = deps.now();
+        let window = c.windows.get(msg.channelId) ?? [];
+        if (now >= st.cooldownUntil) {
+          const cutoff = now - rule.burst.windowSec * 1000;
+          window = window.filter((h) => h.t > cutoff);
+          window.push({ userId: msg.userId, t: now });
+          c.windows.set(msg.channelId, window);
+        }
+        const tally = c.tallies.get(msg.channelId);
+        if (tally) {
+          tally.mentions++;
+          addChatter(tally.chatters, msg.userId);
+        }
+        const r = step(st, rule.burst, rule.cooldownSec, msg, now);
         if (!r.fired) continue;
-        const firedAt = deps.now();
+        const firedAt = now;
+        const chatters = new Set<string>();
+        for (const h of window) addChatter(chatters, h.userId);
+        c.tallies.set(msg.channelId, { since: firedAt, mentions: window.length, chatters });
+        c.windows.set(msg.channelId, []);
         deps.setLastFired(rule.id, msg.channelId, firedAt);
         deps.onHit({ ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: msg.channelId, channel: msg.channel, count: r.count, sample: msg, firedAt });
       }
@@ -81,6 +109,20 @@ export function createEngine(deps: EngineDeps) {
 
     stats(): { messages: number; avgMatchMicros: number; maxMatchMicros: number } {
       return { messages, avgMatchMicros: messages ? totalMicros / messages : 0, maxMatchMicros: maxMicros };
+    },
+
+    live(ruleId: string): { channelId: string; inWindow: number; cooling: boolean; tally: { since: number; mentions: number; chatters: number } | null }[] {
+      const c = compiled.get(ruleId);
+      if (!c) return [];
+      const now = deps.now();
+      return [...c.states].map(([channelId, state]) => {
+        const cooling = now < state.cooldownUntil;
+        const cutoff = now - c.rule.burst.windowSec * 1000;
+        const hits = cooling ? [] : state.hits.filter((h) => h.t > cutoff);
+        const inWindow = c.rule.burst.countBy === 'users' ? new Set(hits.map((h) => h.key)).size : hits.length;
+        const tally = c.tallies.get(channelId);
+        return { channelId, inWindow, cooling, tally: tally ? { since: tally.since, mentions: tally.mentions, chatters: tally.chatters.size } : null };
+      });
     },
   };
 }
