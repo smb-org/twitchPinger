@@ -66,10 +66,15 @@ function Highlight({ text, ranges }: { text: string; ranges: Ranges | null }) {
 export function PreviewPanel({ channels, login, setLogin, pv, an, hasPattern }: { channels: Channel[]; login: string; setLogin: (l: string) => void; pv: PreviewState; an: Analysis; hasPattern: boolean }) {
   const list = useRef<HTMLDivElement>(null);
   const scrolled = useRef('');
+  // Like a chat: follow new messages unless the user scrolled up to read.
+  const atBottom = useRef(true);
   const msgs = pv.messages;
   useEffect(() => {
-    if (msgs && list.current && scrolled.current !== login) { list.current.scrollTop = list.current.scrollHeight; scrolled.current = login; }
+    if (!msgs || !list.current) return;
+    if (scrolled.current !== login || atBottom.current) list.current.scrollTop = list.current.scrollHeight;
+    scrolled.current = login;
   }, [msgs, login]);
+  const onScroll = (e: Event) => { const el = e.currentTarget as HTMLElement; atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40; };
 
   let body;
   if (channels.length === 0) body = <p class="empty-text">Noch keine Channels. Füge unter „Channels“ einen hinzu, um eine Vorschau zu sehen.</p>;
@@ -101,7 +106,7 @@ export function PreviewPanel({ channels, login, setLogin, pv, an, hasPattern }: 
         <p class="pv-count mono" role="status" aria-live="polite">{counter}</p>
         <p class="pv-note muted">{note}</p>
       </div>
-      <div class="pv-list" ref={list} tabIndex={0} aria-label="Chatnachrichten">{body}</div>
+      <div class="pv-list" ref={list} onScroll={onScroll} tabIndex={0} aria-label="Chatnachrichten">{body}</div>
       <div class="panel-foot small muted">Zeigt die letzten 500 Nachrichten · aktualisiert sich alle 15 s</div>
     </>
   );
