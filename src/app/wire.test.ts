@@ -177,10 +177,11 @@ test('daily job re-resolves a renamed channel login and re-applies config', asyn
   assert.equal(s.timers.fns.length, 1);
 });
 
-test('startup backfills null channel avatars in Helix batches of 100', async () => {
+test('startup refreshes all channel avatars in Helix batches of 100', async () => {
   const users = Array.from({ length: 101 }, (_, i) => ({ id: `c${i}`, login: `channel_${i}` }));
   const s = setup({}, users);
   for (const user of users) s.repo.upsertChannel({ ...user, displayName: user.login }, 1);
+  s.repo.updateChannelAvatar('c0', 'https://img.example/stale.png');
   await s.svc.start();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(s.loginBatchSizes, [100, 1]);
@@ -201,7 +202,7 @@ test('startup does not wait for avatar lookup and logs a best-effort failure', a
   assert.equal(outcome, 'started');
   rejectLookup(new Error('Twitch unavailable'));
   await new Promise((resolve) => setImmediate(resolve));
-  assert.match(s.logs.join('\n'), /channel avatar backfill failed/);
+  assert.match(s.logs.join('\n'), /channel avatar refresh failed/);
 });
 
 test('token only for same-origin ntfy URLs, not prefix-lookalike hosts', async () => {
