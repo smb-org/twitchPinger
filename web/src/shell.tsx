@@ -53,7 +53,9 @@ function StatusStrip({ me, version, versionText }: { me: Me | null; version: str
     <div class="strip">
       <div class={`strip-state ${kind}`} role="status" aria-live="polite">
         <span class="dot" aria-hidden="true" />
-        <span class="strip-text"><span class="sr">{word}</span>{text}</span>
+        {me?.isAdmin && h?.connected
+          ? <Link href="/admin" class="strip-text" title="Alle Channels im Dienst anzeigen"><span class="sr">{word}</span>{text}</Link>
+          : <span class="strip-text"><span class="sr">{word}</span>{text}</span>}
       </div>
       <div class="strip-user">
         <span class="app-version mobile-version" title={version}>{versionText}</span>

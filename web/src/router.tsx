@@ -12,7 +12,7 @@ export function navigate(to: string, replace = false) {
 export const useLocation = () => loc.use();
 export const isPublicPath = (p: string) => p === '/login' || p.startsWith('/invite/');
 
-interface LinkProps { href: string; class?: string; children?: ComponentChildren; 'aria-current'?: 'page'; onClick?: (e: MouseEvent) => void }
+interface LinkProps { href: string; class?: string; title?: string; children?: ComponentChildren; 'aria-current'?: 'page'; onClick?: (e: MouseEvent) => void }
 export function Link({ href, onClick, ...rest }: LinkProps) {
   return (
     <a
