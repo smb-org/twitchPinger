@@ -1,0 +1,14 @@
+# base-url is set via NTFY_BASE_URL env in compose (NTFY_BASE_URL overrides this file)
+base-url: "https://ntfy.example.org"
+listen-http: ":80"
+behind-proxy: true
+auth-file: /var/lib/ntfy/user.db
+auth-default-access: "deny-all"
+cache-file: /var/cache/ntfy/cache.db
+# Users and tokens contain secrets and come from the environment (compose.yaml):
+#   NTFY_AUTH_USERS  = marble:<bcrypt hash>:user
+#   NTFY_AUTH_TOKENS = marble:<NTFY_APP_TOKEN>:app
+# Only the app user may publish; anonymous clients may only read unguessable mn-* topics.
+auth-access:
+  - "marble:mn-*:rw"
+  - "everyone:mn-*:ro"
