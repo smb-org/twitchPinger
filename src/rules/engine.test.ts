@@ -78,3 +78,13 @@ test('rule with uncompilable matcher is skipped and logged, others still fire', 
   assert.deepEqual(hits.map((h) => h.ruleId), ['good']);
   assert.match(logs.join(), /bad/);
 });
+
+test('cooldown and burst window are per channel', () => {
+  const { e, hits, tick } = setup();
+  e.setRules([rule({ channelIds: ['c1', 'c2'] })]);
+  for (let i = 0; i < 10; i++) e.ingest(msg('!play', { userId: `u${i}` }));
+  assert.equal(hits.length, 1);
+  tick(30_000);
+  for (let i = 0; i < 10; i++) e.ingest(msg('!play', { channelId: 'c2', channel: 'other', userId: `u${i}` }));
+  assert.deepEqual(hits.map((h) => h.channelId), ['c1', 'c2']);
+});

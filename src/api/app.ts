@@ -240,12 +240,10 @@ export function createApi(deps: ApiDeps) {
   });
 
   app.get('/overview', (c) => {
-    const t = now();
     const channels = new Map(repo.listUserChannels(me(c).id).map((ch) => [ch.id, ch]));
     const rules = repo.listRules(me(c).id).map((r) => {
       const lastFired = repo.listLastFired(r.id).map((l) => ({ channelId: l.channelId, channel: channels.get(l.channelId)?.login ?? null, ts: l.ts, cooldownUntil: l.ts + r.cooldownSec * 1000 }));
-      const until = Math.max(0, ...lastFired.map((l) => l.cooldownUntil));
-      return { ...r, lastFired, cooldownUntil: until > t ? until : null };
+      return { ...r, lastFired };
     });
     return c.json({ rules, lastPings: repo.lastPings(me(c).id, 10) });
   });

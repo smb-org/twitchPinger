@@ -1,11 +1,15 @@
 import type { ComponentChildren } from 'preact';
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { ApiError } from './api.ts';
+import type { Fired } from './api.ts';
 import { store } from './store.ts';
 
 // ---- time ----
 const pad = (n: number) => String(n).padStart(2, '0');
 export const hhmm = (ts: number) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+/** Cooldown runs per channel: list each channel still resting, e.g. "sbx_tv bis 14:05". */
+export const resting = (fired: Fired[], now = Date.now()) =>
+  fired.filter((l) => l.cooldownUntil > now).map((l) => `${l.channel ?? '?'} bis ${hhmm(l.cooldownUntil)}`).join(', ');
 export const hhmmss = (ts: number) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
 export function ago(ts: number, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - ts) / 1000));

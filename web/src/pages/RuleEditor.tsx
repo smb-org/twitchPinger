@@ -8,7 +8,7 @@ import type { Form } from '../form.ts';
 import { PreviewPanel, analyse, usePreview } from '../preview.tsx';
 import { RuleTestButton } from '../rule-test.tsx';
 import { Link, navigate, useLocation } from '../router.tsx';
-import { ConfirmButton, Err, LoadError, hhmm, toast, useLoad, useTitle, val } from '../ui.tsx';
+import { ConfirmButton, Err, LoadError, resting, toast, useLoad, useTitle, val } from '../ui.tsx';
 
 const BADGES: [Badge, string][] = [['broadcaster', 'Broadcaster'], ['moderator', 'Mods'], ['vip', 'VIPs'], ['subscriber', 'Subs']];
 const LOGIN_RE = /^[a-z0-9_]{1,25}$/;
@@ -73,7 +73,7 @@ export function RuleEditor({ id }: { id: string | null }) {
   const atLimit = !id && (base.data?.rules.length ?? 0) >= me.limits.MAX_RULES_PER_USER;
   const problem = atLimit ? `Limit erreicht: höchstens ${me.limits.MAX_RULES_PER_USER} Regeln.` : Object.values(errs)[0] ?? '';
   const srvOf = (prefix: string) => Object.entries(srv).find(([k]) => k === prefix || k.startsWith(prefix + '.'))?.[1];
-  const cooldownUntil = id ? base.data?.overview.find((r) => r.id === id)?.cooldownUntil : null;
+  const cooling = id ? resting(base.data?.overview.find((r) => r.id === id)?.lastFired ?? []) : '';
 
   function addLogins(raw: string) {
     const add = raw.split(/[\s,;]+/).map((x) => x.trim().toLowerCase().replace(/^@/, '')).filter(Boolean);
@@ -217,7 +217,7 @@ export function RuleEditor({ id }: { id: string | null }) {
           </div>
           <div class="panel-foot">
             <p class="sentence" aria-live="polite">{sentence}</p>
-            <p class="err" aria-live="polite">{srv._ ?? (cooldownUntil && cooldownUntil > Date.now() ? `Regel im Cooldown: ruht bis ${hhmm(cooldownUntil)}` : '')}</p>
+            <p class="err" aria-live="polite">{srv._ ?? (cooling ? `Cooldown: ${cooling}` : '')}</p>
             <div class="inline-row wrap">
               <button class="btn" onClick={save} disabled={saving || !!problem}>{saving ? 'Speichere…' : 'Speichern'}</button>
               {id && <ConfirmButton label="Regel löschen" confirm="Wirklich löschen?" onConfirm={del} />}

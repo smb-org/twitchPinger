@@ -590,11 +590,9 @@ test('overview: rules with cooldown info and last pings; me counts', async () =>
   a.repo.setLastFired(rule.id, ch.id, 1_000_000);
   a.repo.recordHit({ ruleId: rule.id, channelId: ch.id, count: 3, firedAt: 1_000_000, sentTs: 999_000 });
   const o = await j(await a.req('/overview', { cookie: alice }));
-  assert.equal(o.rules[0].cooldownUntil, 1_060_000);
+  assert.equal(o.rules[0].lastFired[0].cooldownUntil, 1_060_000);
   assert.equal(o.rules[0].lastFired[0].channel, 'marbles_one');
   assert.equal(o.lastPings.length, 1);
-  a.advance(61_000);
-  assert.equal((await j(await a.req('/overview', { cookie: alice }))).rules[0].cooldownUntil, null);
   const me = await j(await a.req('/me', { cookie: alice }));
   assert.deepEqual(me.onboarding, { hasChannel: true, hasTarget: false, hasRule: true });
   assert.equal(me.limits.MAX_RULES_PER_USER, 20);

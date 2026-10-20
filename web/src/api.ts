@@ -58,7 +58,7 @@ export const MAX_TARGETS = 10; // server constant, not part of /me limits
 
 export interface Health { ok: boolean; reader: ReaderHealth }
 export interface Fired { channelId: string; channel: string | null; ts: number; cooldownUntil: number }
-export type OverviewRule = Rule & { lastFired: Fired[]; cooldownUntil: number | null };
+export type OverviewRule = Rule & { lastFired: Fired[] };
 export interface Ping { hitId: number; firedAt: number; ruleId: string; ruleName: string; channelId: string; channel: string | null; count: number; sentTs: number | null; hasTargets: boolean; results: { targetId: string; ok: boolean; ts: number; targetName: string | null }[] }
 export interface TargetDto { id: string; kind: TargetKind; name: string; url: string; failCount: number; status: 'ok' | 'failing' | 'unlinked' | 'unavailable'; failureHint: string | null }
 export interface InviteDto { id: string; createdAt: number; expiresAt: number; usedAt: number | null; usedBy: string | null; status: 'open' | 'used' | 'revoked' | 'expired' }
