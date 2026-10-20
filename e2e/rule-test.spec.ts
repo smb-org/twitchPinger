@@ -61,3 +61,40 @@ test('overview rule test sends immediately, shows per-target result, and reserve
   await expect(page.locator('.rule-test-hint')).toHaveText('Änderungen erst speichern.');
   await ctx.close();
 });
+
+test('overview fits narrow and mid-size viewports without overflow or panel overlap', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  await loginAs(ctx, '8502', 'rule_layout_user');
+  const targetResponse = await apiPost(ctx, '/api/targets', { kind: 'ntfy', name: 'Phone' });
+  expect(targetResponse.ok()).toBe(true);
+  const { target } = await targetResponse.json();
+  const ruleResponse = await apiPost(ctx, '/api/rules', {
+    name: 'Responsive rule', matcher: { mode: 'word', pattern: '!play' }, targetIds: [target.id], channelIds: [],
+  });
+  expect(ruleResponse.ok()).toBe(true);
+
+  const page = await ctx.newPage();
+  await page.goto('/');
+  await expect(page.locator('table.rules')).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Letzte Pings' })).toBeVisible();
+
+  for (const width of [390, 1130]) {
+    await page.setViewportSize({ width, height: 800 });
+    await expect.poll(() => page.evaluate(() => {
+      const doc = (globalThis as any).document;
+      return doc.documentElement.scrollWidth - doc.documentElement.clientWidth;
+    })).toBe(0);
+    const { table, pings } = await page.evaluate(() => {
+      const doc = (globalThis as any).document;
+      const tableRect = doc.querySelector('table.rules').getBoundingClientRect();
+      const pingsRect = doc.querySelector('.pings').getBoundingClientRect();
+      return {
+        table: { left: tableRect.left, right: tableRect.right, top: tableRect.top, bottom: tableRect.bottom },
+        pings: { left: pingsRect.left, right: pingsRect.right, top: pingsRect.top, bottom: pingsRect.bottom },
+      };
+    });
+    const separated = table.right <= pings.left || pings.right <= table.left || table.bottom <= pings.top || pings.bottom <= table.top;
+    expect(separated, `rule table and Letzte Pings overlap at ${width}px`).toBe(true);
+  }
+  await ctx.close();
+});

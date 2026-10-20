@@ -16,6 +16,9 @@ const MODES: MatchMode[] = ['contains', 'word', 'prefix', 'regex'];
 const LOGIN_RE = /^[a-z0-9_]{3,25}$/;
 const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
 const DAY = 86_400_000;
+const TEST_COOLDOWN_MS = 10_000;
+const TEST_HOUR_MS = 3_600_000;
+const TESTS_PER_USER_HOUR = 20;
 const HEALTH_DISCONNECT_GRACE_MS = 2 * 60_000;
 const HEALTH_JOIN_GRACE_MS = 60_000;
 
@@ -31,7 +34,8 @@ export function createApi(deps: ApiDeps) {
   const origin = new URL(config.publicUrl).origin;
   const redirectUri = `${config.publicUrl}/api/auth/callback`;
   const cookieBase = { httpOnly: true, secure: !config.insecureCookies, sameSite: 'Lax' as const, path: '/' };
-  const ruleTestAt = new Map<string, number>();
+  const userTestAt = new Map<string, number[]>();
+  const targetTestAt = new Map<string, Map<string, number>>();
   let incompleteJoinSince: number | null = null;
 
   const app = new Hono<Env>().basePath('/api');
@@ -72,6 +76,34 @@ export function createApi(deps: ApiDeps) {
   }
   const changed = (immediate = false) => deps.onConfigChanged(immediate);
   const notFound = (what: string) => new ApiError(404, 'not_found', `${what} nicht gefunden.`);
+  const checkTestQuota = (userId: string, targets: Target[], testedAt: number) => {
+    const targetTests = targetTestAt.get(userId);
+    for (const target of targets) {
+      const lastTestAt = targetTests?.get(target.id);
+      if (lastTestAt !== undefined && testedAt - lastTestAt < TEST_COOLDOWN_MS) {
+        throw new ApiError(429, 'test_rate_limited', 'Dieses Ziel kann nur alle 10 Sekunden getestet werden.', undefined, TEST_COOLDOWN_MS - (testedAt - lastTestAt));
+      }
+    }
+
+    const history = userTestAt.get(userId) ?? [];
+    const recentTests = history.filter((ts) => testedAt - ts < TEST_HOUR_MS);
+    if (recentTests.length !== history.length) {
+      if (recentTests.length) userTestAt.set(userId, recentTests);
+      else userTestAt.delete(userId);
+    }
+    const lastTestAt = recentTests.at(-1);
+    if (lastTestAt !== undefined && testedAt - lastTestAt < TEST_COOLDOWN_MS) {
+      throw new ApiError(429, 'test_rate_limited', 'Du kannst nur alle 10 Sekunden einen Test auslösen.', undefined, TEST_COOLDOWN_MS - (testedAt - lastTestAt));
+    }
+    if (recentTests.length >= TESTS_PER_USER_HOUR) {
+      throw new ApiError(429, 'test_rate_limited', 'Du kannst höchstens 20 Tests pro Stunde auslösen.', undefined, recentTests[0]! + TEST_HOUR_MS - testedAt);
+    }
+
+    userTestAt.set(userId, [...recentTests, testedAt]);
+    const nextTargetTests = targetTests ?? new Map<string, number>();
+    for (const target of targets) nextTargetTests.set(target.id, testedAt);
+    targetTestAt.set(userId, nextTargetTests);
+  };
 
   // ---- health & auth ----
   app.get('/health', (c) => {
@@ -328,10 +360,7 @@ export function createApi(deps: ApiDeps) {
     if (!targets.length) throw new ApiError(400, 'no_targets', 'Für diese Regel ist kein Ziel ausgewählt.');
 
     const firedAt = now();
-    for (const [id, ts] of ruleTestAt) if (firedAt - ts >= 10_000) ruleTestAt.delete(id);
-    const lastTestAt = ruleTestAt.get(rule.id);
-    if (lastTestAt !== undefined && firedAt - lastTestAt < 10_000) throw new ApiError(429, 'test_rate_limited', 'Diese Regel kann nur alle 10 Sekunden getestet werden.', undefined, 10_000 - (firedAt - lastTestAt));
-    ruleTestAt.set(rule.id, firedAt);
+    checkTestQuota(rule.ownerId, targets, firedAt);
 
     const channels = new Map(repo.listUserChannels(rule.ownerId).map((channel) => [channel.id, channel]));
     const channel = rule.channelIds.map((id) => channels.get(id)).find((candidate) => candidate !== undefined);
@@ -424,6 +453,7 @@ export function createApi(deps: ApiDeps) {
   app.post('/targets/:id/test', async (c) => {
     const t = repo.getTarget(c.req.param('id'));
     if (!t || t.ownerId !== me(c).id) throw notFound('Ziel');
+    checkTestQuota(t.ownerId, [t], now());
     const r: { ok: boolean; error?: string; errorCode?: number } = await deliverer.sendTest(t).catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : 'Fehler' }));
     repo.recordDeliveryResult(t.id, r.ok, r.error, r.errorCode === 50007 || r.errorCode === 50278);
     return c.json(r);

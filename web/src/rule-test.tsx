@@ -63,7 +63,7 @@ export function RuleTestButton({ id, targets = [], disabledReason }: { id: strin
 
   return (
     <div class="rule-test">
-      <button type="button" class="btn ghost sm" onClick={run} disabled={running || cooling || !!disabledReason} aria-describedby={`rule-test-hint-${id}`}>Test auslösen</button>
+      <button type="button" class="btn ghost sm" onClick={run} disabled={running || cooling || !!disabledReason} aria-label="Test auslösen" aria-describedby={`rule-test-hint-${id}`}>Test</button>
       <span class="rule-test-hint" id={`rule-test-hint-${id}`} aria-live="polite">{hint}</span>
     </div>
   );

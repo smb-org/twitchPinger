@@ -433,28 +433,60 @@ test('rule test sends a synthetic hit to owned targets without changing rule sta
   assert.deepEqual(['t1', 't2'].map((id) => a.repo.getTarget(id)), targetBefore);
 });
 
-test('rule test is limited to once per rule every ten seconds', async () => {
+test('test endpoints share per-user cooldown and hourly quota across rule churn', async () => {
   const a = setup();
   const { alice } = await member(a);
-  a.repo.saveTarget({ id: 't1', ownerId: '2', kind: 'ntfy', name: 'phone', url: 'https://ntfy.example/topic', token: null });
-  const rule = (await j(await a.req('/rules', { method: 'POST', cookie: alice, body: {
-    name: 'Pattern', matcher: { mode: 'regex', pattern: 'play\\s+now' }, targetIds: ['t1'],
-  } }))).rule;
+  for (const id of ['t1', 't2']) {
+    a.repo.saveTarget({ id, ownerId: '2', kind: 'ntfy', name: id, url: `https://ntfy.example/${id}`, token: null });
+  }
+  const createRule = async (name: string, targetId: string) => {
+    const response = await a.req('/rules', { method: 'POST', cookie: alice, body: {
+      name, matcher: { mode: 'regex', pattern: 'play\\s+now' }, targetIds: [targetId],
+    } });
+    assert.equal(response.status, 201);
+    return (await j(response)).rule;
+  };
 
-  assert.equal((await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice })).status, 200);
-  const limited = await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice });
+  const firstRule = await createRule('Pattern one', 't1');
+  assert.equal((await a.req(`/rules/${firstRule.id}/test`, { method: 'POST', cookie: alice })).status, 200);
+  assert.equal((await a.req(`/rules/${firstRule.id}`, { method: 'DELETE', cookie: alice })).status, 200);
+
+  // A new rule ID and a different target cannot reset the user's shared cooldown.
+  const secondRule = await createRule('Pattern two', 't2');
+  const limited = await a.req(`/rules/${secondRule.id}/test`, { method: 'POST', cookie: alice });
   assert.equal(limited.status, 429);
   const rateError = await j(limited);
   assert.match(rateError.error.message, /alle 10 Sekunden/);
   assert.equal(rateError.error.retryAfterMs, 10_000);
   assert.equal(a.ruleTests.length, 1);
-  a.advance(9_999);
-  const almostReady = await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice });
-  assert.equal(almostReady.status, 429);
-  assert.equal((await j(almostReady)).error.retryAfterMs, 1);
-  a.advance(1);
-  assert.equal((await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice })).status, 200);
-  assert.equal(a.ruleTests.length, 2);
+  const sharedLimit = await a.req('/targets/t2/test', { method: 'POST', cookie: alice });
+  assert.equal(sharedLimit.status, 429);
+  assert.match((await j(sharedLimit)).error.message, /alle 10 Sekunden/);
+  const targetLimit = await a.req('/targets/t1/test', { method: 'POST', cookie: alice });
+  assert.equal(targetLimit.status, 429);
+  assert.match((await j(targetLimit)).error.message, /Dieses Ziel/);
+  assert.equal(a.tests.length, 0);
+
+  a.advance(10_000);
+  assert.equal((await a.req('/targets/t2/test', { method: 'POST', cookie: alice })).status, 200);
+  for (let sent = 3; sent <= 20; sent++) {
+    a.advance(10_000);
+    const response = sent % 2 === 1
+      ? await a.req(`/rules/${secondRule.id}/test`, { method: 'POST', cookie: alice })
+      : await a.req('/targets/t1/test', { method: 'POST', cookie: alice });
+    assert.equal(response.status, 200, `test ${sent} should be within the hourly allowance`);
+  }
+  a.advance(10_000);
+  const hourlyLimited = await a.req('/targets/t2/test', { method: 'POST', cookie: alice });
+  assert.equal(hourlyLimited.status, 429);
+  const hourlyError = await j(hourlyLimited);
+  assert.match(hourlyError.error.message, /höchstens 20 Tests pro Stunde/);
+  assert.equal(hourlyError.error.retryAfterMs, 3_400_000);
+  assert.equal(a.ruleTests.length + a.tests.length, 20);
+
+  a.advance(3_400_000);
+  assert.equal((await a.req('/targets/t2/test', { method: 'POST', cookie: alice })).status, 200);
+  assert.equal(a.ruleTests.length + a.tests.length, 21);
   assert.equal(a.ruleTests[0].hit.sample.text, 'Muster: /play\\s+now/');
   assert.equal(a.ruleTests[0].hit.channel, 'kein-channel');
 });
