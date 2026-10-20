@@ -13,10 +13,12 @@ export function TargetState({ target }: { target: TargetDto }) {
     : target.status === 'unavailable' ? 'nicht eingerichtet'
     : `fehlerhaft seit ${target.failCount} Versuchen`;
   const dot = target.status === 'ok' ? 'ok' : target.status === 'unlinked' || target.status === 'unavailable' ? 'off' : 'error';
+  const hint = target.failureHint ?? '';
+  const hintId = `target-status-hint-${target.id}`;
   return (
-    <span class="tstat" title={target.failureHint ?? undefined}>
+    <span class="tstat" title={hint || undefined} aria-describedby={hint ? hintId : undefined}>
       <span class="tstat-main"><Dot kind={dot} /> {label}</span>
-      <span class="tstat-hint">{target.failureHint ?? ''}</span>
+      <span class="tstat-hint" id={hintId} title={hint || undefined}>{hint}</span>
     </span>
   );
 }

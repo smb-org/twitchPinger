@@ -1,33 +1,42 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDeliverer } from './deliverer.ts';
-import type { DeliveryResult } from './deliverer.ts';
+import { createDiscordRequestQueue } from './discord-queue.ts';
+import type { DiscordRequestQueue } from './discord-queue.ts';
+import type { DeliveryResult, DiscordDeliveryLink } from './deliverer.ts';
 import { hit } from './fixtures.ts';
 import type { Target } from '../types.ts';
 
 const target = (o: Partial<Target> = {}): Target => ({ id: 't1', ownerId: 'u', kind: 'ntfy', name: 'n', url: 'https://ntfy.example.org/tp-x', token: null, failCount: 0, status: 'ok', ...o });
 
-function setup(statuses: (number | Error | { status: number; retryAfter?: string })[] = [], options: { getTarget?: (id: string) => Target | undefined; sleep?: (ms: number) => Promise<void>; discordLink?: { discordUserId: string; channelId: string | null } | undefined; discordStatuses?: { status: number; body?: string; retryAfter?: string }[]; discordAvailable?: boolean } = {}) {
+function setup(statuses: (number | Error | { status: number; retryAfter?: string })[] = [], options: { getTarget?: (id: string) => Target | undefined; sleep?: (ms: number) => Promise<void>; discordLink?: { discordUserId: string; channelId: string | null } | undefined; discordLinks?: Map<string, DiscordDeliveryLink>; discordQueue?: DiscordRequestQueue; discordStatuses?: { status: number; body?: string; retryAfter?: string }[]; discordAvailable?: boolean } = {}) {
   let t = 0;
   const timers: { fn: () => void; at: number; id: number }[] = [];
   let nid = 0;
   const posts: { url: string; headers: Record<string, string>; body: string }[] = [];
-  const discordPosts: { url: string; headers: Record<string, string>; body: string }[] = [];
+  const discordPosts: { url: string; headers: Record<string, string>; body: string; at: number }[] = [];
   const cachedChannels: { userId: string; channelId: string }[] = [];
   const results: DeliveryResult[] = [];
   const waits: number[] = [];
+  const discordQueue = options.discordQueue ?? createDiscordRequestQueue({ now: () => t, sleep: async (ms) => { t += ms; } });
   const d = createDeliverer({
     now: () => t,
     setTimer: (fn, ms) => { const x = { fn, at: t + ms, id: ++nid }; timers.push(x); return x.id; },
     clearTimer: (h) => { const i = timers.findIndex((x) => x.id === h); if (i >= 0) timers.splice(i, 1); },
-    sleep: async (ms) => { waits.push(ms); await options.sleep?.(ms); },
+    sleep: async (ms) => { waits.push(ms); t += ms; await options.sleep?.(ms); },
     getTarget: options.getTarget,
+    discordQueue,
     discordBotToken: 'bot-secret',
     discordAvailable: options.discordAvailable,
-    getDiscordLink: () => options.discordLink,
-    cacheDiscordChannel: (userId, channelId) => { cachedChannels.push({ userId, channelId }); if (options.discordLink) options.discordLink.channelId = channelId; },
+    getDiscordLink: (userId) => options.discordLinks?.get(userId) ?? options.discordLink,
+    cacheDiscordChannel: (userId, channelId) => {
+      cachedChannels.push({ userId, channelId });
+      if (options.discordLink) options.discordLink.channelId = channelId;
+      const link = options.discordLinks?.get(userId);
+      if (link) link.channelId = channelId;
+    },
     discordPost: async (url, init) => {
-      discordPosts.push({ url, headers: init.headers, body: init.body });
+      discordPosts.push({ url, headers: init.headers, body: init.body, at: t });
       const r = options.discordStatuses?.shift() ?? { status: 200, body: url.endsWith('/users/@me/channels') ? '{"id":"dm-1"}' : '{}' };
       return { status: r.status, body: r.body ?? '', ...(r.retryAfter ? { retryAfter: r.retryAfter } : {}) };
     },
@@ -245,6 +254,25 @@ test('Discord DM retries 429 once using the response retry_after value', async (
   assert.deepEqual(s.waits, [2500]);
   assert.equal(s.discordPosts.length, 2);
   assert.equal(s.results[0]!.ok, true);
+});
+
+test('Discord bot queue paces 100 recipients and honors a global rate limit', async () => {
+  const links = new Map(Array.from({ length: 100 }, (_, i) => [`user-${i}`, { discordUserId: `discord-${i}`, channelId: null }]));
+  const s = setup([], { discordLinks: links, discordStatuses: [
+    { status: 429, body: '{"retry_after":1.2,"global":true}' },
+  ] });
+  for (let i = 0; i < 100; i++) {
+    s.d.deliver(hit({ ruleName: `recipient-${i}` }), [target({ id: `dm-${i}`, ownerId: `user-${i}`, kind: 'discord_dm', url: '' })]);
+  }
+  await s.d.flushAll();
+
+  const starts = s.discordPosts.map((post) => post.at);
+  assert.ok(starts.length >= 200);
+  assert.ok(starts[1]! - starts[0]! >= 1200, 'global 429 pauses every queued request');
+  assert.ok(starts.slice(1).every((at, i) => at - starts[i]! >= 40), 'bot requests start no faster than 25 per second');
+  assert.equal(s.results.length, 100);
+  assert.ok(s.results.every((result) => result.ok));
+  assert.equal(s.results.flatMap((result) => result.hits).length, 100);
 });
 
 test('Discord DM batches split at 2000 characters and preserve every hit', async () => {

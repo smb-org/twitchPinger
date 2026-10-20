@@ -1,6 +1,8 @@
 import type { Hit, Target } from '../types.ts';
 import { formatBatch, toDiscord, toNtfy } from './format.ts';
 import type { Formatted } from './format.ts';
+import { sharedDiscordRequestQueue } from './discord-queue.ts';
+import type { DiscordRequestQueue } from './discord-queue.ts';
 import { checkTargetUrl, safePost, trustedPost } from './ssrf.ts';
 import type { PostResult } from './ssrf.ts';
 
@@ -16,6 +18,7 @@ export interface DelivererDeps {
   discordBotToken?: string;
   /** False when the complete Discord OAuth + bot configuration is not present. */
   discordAvailable?: boolean;
+  discordQueue?: DiscordRequestQueue;
   getDiscordLink?: (userId: string) => DiscordDeliveryLink | undefined;
   cacheDiscordChannel?: (userId: string, channelId: string) => void;
   sleep?: (ms: number) => Promise<void>;
@@ -38,6 +41,7 @@ interface Win { target: Target; timer: unknown; pending: Hit[] }
 export function createDeliverer(deps: DelivererDeps) {
   const post = deps.post ?? safePost;
   const discordPost = deps.discordPost ?? trustedPost;
+  const discordQueue = deps.discordQueue ?? sharedDiscordRequestQueue;
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const wins = new Map<string, Win>();
   const inflight = new Set<Promise<unknown>>();
@@ -70,12 +74,13 @@ export function createDeliverer(deps: DelivererDeps) {
     }
   }
 
-  function discordFailure(body: string): { code?: number; retryAfter?: string } {
+  function discordFailure(body: string): { code?: number; retryAfter?: string; global?: boolean } {
     try {
       const j = JSON.parse(body);
       return {
         ...(typeof j.code === 'number' ? { code: j.code } : {}),
         ...(typeof j.retry_after === 'number' || typeof j.retry_after === 'string' ? { retryAfter: String(j.retry_after) } : {}),
+        ...(j.global === true ? { global: true } : {}),
       };
     } catch { return {}; }
   }
@@ -99,7 +104,15 @@ export function createDeliverer(deps: DelivererDeps) {
     });
     for (let attempt = 0; attempt < 2; attempt++) {
       let r: PostResult;
-      try { r = await request(); }
+      try {
+        r = await discordQueue.request(request, (response) => {
+          if (response.status !== 429) return;
+          const failure = discordFailure(response.body);
+          if (!failure.global) return;
+          const delay = retryAfterMs(failure.retryAfter ?? response.retryAfter);
+          if (delay !== null) discordQueue.pause(delay);
+        });
+      }
       catch (e) {
         const code = (e as { code?: string }).code;
         if (code === 'SSRF_BLOCKED') return { ok: false, error: 'Discord-Adresse blockiert' };
@@ -115,7 +128,7 @@ export function createDeliverer(deps: DelivererDeps) {
       if (r.status === 429) {
         const delay = retryAfterMs(failure.retryAfter ?? r.retryAfter);
         if (delay === null) return { ok: false, status: r.status, error: RETRY_AFTER_TOO_LONG };
-        await sleep(delay);
+        if (!failure.global) await sleep(delay);
       }
       if (!currentDiscordLink(t, recipientId)) return { ok: false, status: r.status, error: DISCORD_UNLINKED };
     }

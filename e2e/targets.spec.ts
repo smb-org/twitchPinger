@@ -64,3 +64,47 @@ test('Discord target query does not expose the feature when /me says it is unava
   await expect(page.getByRole('link', { name: 'Mit Discord verbinden' })).toHaveCount(0);
   await ctx.close();
 });
+
+test('long target status hint keeps row controls fixed on desktop and mobile', async ({ browser }) => {
+  const longHint = `50007: ${'Discord lässt den Bot dir nicht schreiben. '.repeat(8)}`;
+  for (const [index, width] of [1280, 390].entries()) {
+    const ctx = await browser.newContext({ viewport: { width, height: 844 } });
+    await loginAs(ctx, `810${index}`, `status_layout_${index}`);
+    const page = await ctx.newPage();
+    let hint = 'Kurzer Fehlerhinweis';
+    await page.route('**/api/targets', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ targets: [{
+        id: `layout-${index}`, kind: 'discord_dm', name: 'Discord-DM', url: '', failCount: 1,
+        status: 'failing', failureHint: hint,
+      }] }),
+    }));
+    await page.goto('/targets');
+    const row = page.locator('.row.target');
+    await expect(row).toBeVisible();
+    const measure = () => row.evaluate((el) => {
+      const rect = (selector: string) => {
+        const box = el.querySelector(selector)!.getBoundingClientRect();
+        return { x: box.x, y: box.y, width: box.width, height: box.height };
+      };
+      const box = el.getBoundingClientRect();
+      return {
+        row: { x: box.x, y: box.y, width: box.width, height: box.height },
+        status: rect('.tstat'), test: rect('.testcell button'), remove: rect('.confirm'),
+      };
+    });
+    const before = await measure();
+
+    hint = longHint;
+    await page.reload();
+    await expect(row.locator('.tstat-hint')).toHaveText(longHint);
+    const after = await measure();
+    expect(after).toEqual(before);
+    await expect(row.locator('.tstat')).toHaveCSS('flex-basis', '190px');
+    await expect(row.locator('.tstat')).toHaveAttribute('title', longHint);
+    const hintId = await row.locator('.tstat-hint').getAttribute('id');
+    await expect(row.locator('.tstat')).toHaveAttribute('aria-describedby', hintId!);
+    await ctx.close();
+  }
+});
