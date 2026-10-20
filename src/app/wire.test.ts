@@ -194,6 +194,23 @@ test('failed batch of several hits counts as one failure', async () => {
   assert.deepEqual([s.repo.getTarget('t1')!.failCount, s.repo.getTarget('t1')!.status], [2, 'ok']);
 });
 
+test('Retry-After beyond five minutes is recorded as a failed delivery', async () => {
+  let attempts = 0;
+  const s = setup({}, [], { post: async () => {
+    attempts++;
+    return { status: 429, body: '', retryAfter: '600' };
+  } });
+  seed(s);
+  s.svc.onConfigChanged();
+  s.timers.fns.shift()!();
+  s.svc.fakeReader!.push(msg('!play'));
+  await s.svc.deliverer.flushAll();
+
+  assert.equal(attempts, 1);
+  assert.deepEqual(s.repo.lastPings('o1')[0]!.results.map((r) => [r.targetId, r.ok]), [['t1', false]]);
+  assert.equal(s.repo.getTarget('t1')!.failCount, 1);
+});
+
 test('message handler swallows engine errors', () => {
   let onMessage!: (m: never) => void;
   const logs: string[] = [];

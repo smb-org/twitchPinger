@@ -27,6 +27,7 @@ export interface DelivererDeps {
 const WINDOW_MS = 10_000;
 const TIMEOUT_MS = 5_000;
 const MAX_RETRY_AFTER_MS = 300_000;
+const RETRY_AFTER_TOO_LONG = 'Retry-After exceeds five-minute retry limit';
 const TEST_TEXT = 'Test von marbleNotification – wenn du das liest, kommt alles an.';
 const DISCORD_API = 'https://discord.com/api/v10';
 const DISCORD_DM_HINT = 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.';
@@ -41,12 +42,12 @@ export function createDeliverer(deps: DelivererDeps) {
   const wins = new Map<string, Win>();
   const inflight = new Set<Promise<unknown>>();
 
-  function retryAfterMs(value: string | undefined): number {
+  function retryAfterMs(value: string | undefined): number | null {
     if (!value) return 1000;
     const seconds = Number(value);
     const delay = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - deps.now();
     if (!Number.isFinite(delay)) return 1000;
-    return Math.min(MAX_RETRY_AFTER_MS, Math.max(0, delay));
+    return delay > MAX_RETRY_AFTER_MS ? null : Math.max(0, delay);
   }
 
   function track(promise: Promise<unknown>): void {
@@ -111,7 +112,11 @@ export function createDeliverer(deps: DelivererDeps) {
       if (failure.code === 50007 || failure.code === 50278) return { ok: false, status: r.status, ...discordError(r.status, r.body) };
       if (r.status !== 429 && r.status < 500) return { ok: false, status: r.status, ...discordError(r.status, r.body) };
       if (attempt > 0) return { ok: false, status: r.status, ...discordError(r.status, r.body) };
-      if (r.status === 429) await sleep(retryAfterMs(failure.retryAfter ?? r.retryAfter));
+      if (r.status === 429) {
+        const delay = retryAfterMs(failure.retryAfter ?? r.retryAfter);
+        if (delay === null) return { ok: false, status: r.status, error: RETRY_AFTER_TOO_LONG };
+        await sleep(delay);
+      }
       if (!currentDiscordLink(t, recipientId)) return { ok: false, status: r.status, error: DISCORD_UNLINKED };
     }
     return { ok: false, error: 'Discord-Zustellung fehlgeschlagen.' };
@@ -143,7 +148,11 @@ export function createDeliverer(deps: DelivererDeps) {
     if (!c.ok) return { ok: false, error: c.error };
     let r = await sendOnce(t, f);
     if (!r.ok && r.retry) {
-      if (r.status === 429) await sleep(retryAfterMs(r.retryAfter));
+      if (r.status === 429) {
+        const delay = retryAfterMs(r.retryAfter);
+        if (delay === null) return { ok: false, status: r.status, error: RETRY_AFTER_TOO_LONG };
+        await sleep(delay);
+      }
       const current = deps.getTarget ? deps.getTarget(t.id) : t;
       if (!current || current.url !== t.url) return { ok: false, status: r.status, error: 'Ziel wurde entfernt oder geändert' };
       const retryCheck = checkTargetUrl(current.kind, current.url);

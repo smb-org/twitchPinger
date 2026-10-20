@@ -100,7 +100,7 @@ test('retry once on 5xx and network error, not on 4xx', async () => {
   assert.equal(s.results[0]!.status, 404);
 });
 
-test('retries 429 once after Retry-After up to the five-minute cap', async () => {
+test('retries 429 once when Retry-After is within the five-minute limit', async () => {
   let s = setup([{ status: 429, retryAfter: '7' }, 200]);
   s.d.deliver(hit(), [target()]);
   await s.d.flushAll();
@@ -108,10 +108,14 @@ test('retries 429 once after Retry-After up to the five-minute cap', async () =>
   assert.equal(s.posts.length, 2);
   assert.equal(s.results[0]!.ok, true);
 
-  s = setup([{ status: 429, retryAfter: '999999' }, 200]);
+  s = setup([{ status: 429, retryAfter: '600' }, 200]);
   s.d.deliver(hit(), [target()]);
   await s.d.flushAll();
-  assert.deepEqual(s.waits, [300_000]);
+  assert.deepEqual(s.waits, []);
+  assert.equal(s.posts.length, 1);
+  assert.equal(s.results[0]!.ok, false);
+  assert.equal(s.results[0]!.status, 429);
+  assert.match(s.results[0]!.error ?? '', /Retry-After.*five-minute/i);
 
   s = setup([{ status: 429, retryAfter: '120' }, 200]);
   s.d.deliver(hit(), [target()]);
@@ -122,6 +126,20 @@ test('retries 429 once after Retry-After up to the five-minute cap', async () =>
   s.d.deliver(hit(), [target()]);
   await s.d.flushAll();
   assert.deepEqual(s.waits, [5000]);
+});
+
+test('Discord DM does not retry early when Retry-After exceeds the five-minute limit', async () => {
+  const s = setup([], { discordLink: { discordUserId: 'discord-user', channelId: 'dm-1' }, discordStatuses: [
+    { status: 429, body: '{"retry_after":600,"global":false}' }, { status: 200, body: '{}' },
+  ] });
+  const t = target({ id: 'dm-target', ownerId: 'user-1', kind: 'discord_dm', url: '' });
+  s.d.deliver(hit(), [t]);
+  await s.d.flushAll();
+  assert.deepEqual(s.waits, []);
+  assert.equal(s.discordPosts.length, 1);
+  assert.equal(s.results[0]!.ok, false);
+  assert.equal(s.results[0]!.status, 429);
+  assert.match(s.results[0]!.error ?? '', /Retry-After.*five-minute/i);
 });
 
 test('retry re-resolves destination and drops a deleted or rotated target', async () => {

@@ -14,7 +14,21 @@ const lower = (s: string): string => s.toLocaleLowerCase('de');
 
 function wordRegexBody(pattern: string): string | null {
   if (!pattern.startsWith(WORD_REGEX_PREFIX) || !pattern.endsWith(WORD_REGEX_SUFFIX)) return null;
-  return pattern.slice(WORD_REGEX_PREFIX.length, -WORD_REGEX_SUFFIX.length);
+  const body = pattern.slice(WORD_REGEX_PREFIX.length, -WORD_REGEX_SUFFIX.length);
+  let depth = 1;
+  let inClass = false;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!;
+    if (ch === '\\') { i++; continue; }
+    if (inClass) {
+      if (ch === ']') inClass = false;
+      continue;
+    }
+    if (ch === '[') inClass = true;
+    else if (ch === '(') depth++;
+    else if (ch === ')' && --depth < 1) return null;
+  }
+  return depth === 1 && !inClass ? body : null;
 }
 
 /** Lowercased text plus, per lowered UTF-16 unit, the original [start,end) it came from. */
@@ -70,18 +84,31 @@ function stringMatcher(m: Matcher): (text: string) => MatchResult {
 /** Compile a matcher once; the returned function is reusable. Regex mode uses RE2 (linear time). */
 export function compileMatcher(m: Matcher): (text: string) => MatchResult {
   if (m.mode !== 'regex') return stringMatcher(m);
-  const body = wordRegexBody(m.pattern);
-  const re = RE2JS.compile(body ?? m.pattern, m.caseSensitive ? 0 : RE2JS.CASE_INSENSITIVE);
+  let body = wordRegexBody(m.pattern);
+  let re;
+  try {
+    re = RE2JS.compile(body ?? m.pattern, m.caseSensitive ? 0 : RE2JS.CASE_INSENSITIVE);
+  } catch (e) {
+    if (body === null) throw e;
+    body = null;
+    re = RE2JS.compile(m.pattern, m.caseSensitive ? 0 : RE2JS.CASE_INSENSITIVE);
+  }
   return (text) => {
     const mt = re.matcher(text);
     const ranges: Ranges = [];
     let matched = false;
-    while (mt.find()) {
+    let searchFrom = 0;
+    while (mt.find(searchFrom)) {
       const start = mt.start();
       const end = mt.end();
-      if (body !== null && (WORD_BEFORE.test(text.slice(Math.max(0, start - 2), start)) || WORD_AFTER.test(text.slice(end, end + 2)))) continue;
+      if (body !== null && (WORD_BEFORE.test(text.slice(Math.max(0, start - 2), start)) || WORD_AFTER.test(text.slice(end, end + 2)))) {
+        searchFrom = start + 1;
+        continue;
+      }
       matched = true;
       if (end > start) ranges.push([start, end]);
+      if (end === start && start === text.length) break;
+      searchFrom = end > start ? end : start + 1;
     }
     return matched ? { matched, ranges } : NO_MATCH;
   };
