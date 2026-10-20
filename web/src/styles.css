@@ -57,6 +57,7 @@ main:focus-visible { outline: none; }
 .page { max-width: 1440px; padding: 8px 24px 32px; }
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 64px; flex-wrap: wrap; }
 .page-head .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.editor .page-head .actions { align-items: flex-start; }
 .note { font-size: 0.875rem; }
 .lead { max-width: 60ch; color: var(--text); }
 

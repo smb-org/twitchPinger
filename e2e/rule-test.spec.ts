@@ -98,3 +98,62 @@ test('overview fits narrow and mid-size viewports without overflow or panel over
   }
   await ctx.close();
 });
+
+test('rule editor header actions stay aligned with or without the test hint at wide viewports', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  await loginAs(ctx, '8503', 'rule_header_user');
+  const ruleResponse = await apiPost(ctx, '/api/rules', {
+    name: 'Header alignment', matcher: { mode: 'word', pattern: '!play' }, targetIds: [], channelIds: [],
+  });
+  expect(ruleResponse.ok()).toBe(true);
+  const { rule } = await ruleResponse.json();
+
+  const page = await ctx.newPage();
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const requestStarted = new Promise<void>((resolve) => { started = resolve; });
+  await page.route(`**/api/rules/${rule.id}/test`, async (route) => {
+    started();
+    await gate;
+    await route.fulfill({ status: 200, contentType: 'application/json', json: { results: [] } });
+  });
+
+  try {
+    await page.goto(`/rules/${rule.id}`);
+    const testButton = page.getByRole('button', { name: 'Test auslösen' });
+    const templateButton = page.getByRole('button', { name: 'Marbles-Vorlage' });
+    const backButton = page.getByRole('link', { name: 'Zurück' });
+    const hint = page.locator('.rule-test-hint');
+    await expect(testButton).toBeVisible();
+    await expect(hint).toHaveText('\u00a0');
+
+    const expectAligned = async (width: number) => {
+      const boxes = await Promise.all([testButton, templateButton, backButton].map((button) => button.boundingBox()));
+      const [testBox, templateBox, backBox] = boxes;
+      expect(testBox, `test button at ${width}px`).not.toBeNull();
+      expect(templateBox, `template button at ${width}px`).not.toBeNull();
+      expect(backBox, `back button at ${width}px`).not.toBeNull();
+      for (const box of [templateBox!, backBox!]) {
+        expect(Math.abs(testBox!.y - box.y), `button tops at ${width}px`).toBeLessThanOrEqual(1);
+        expect(Math.abs(testBox!.height - box.height), `button heights at ${width}px`).toBeLessThanOrEqual(1);
+      }
+    };
+
+    for (const width of [1440, 2560]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectAligned(width);
+    }
+
+    await testButton.click();
+    await requestStarted;
+    await expect(hint).toHaveText('Testnachricht wird gesendet…');
+    for (const width of [1440, 2560]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectAligned(width);
+    }
+  } finally {
+    release();
+    await ctx.close();
+  }
+});
