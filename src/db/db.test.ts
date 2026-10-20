@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { openDb } from './db.ts';
 import { createRepo } from './repo.ts';
 import { vacuumInto } from './backup.ts';
@@ -23,7 +24,20 @@ test('migrations set user_version and are idempotent', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tp-'));
   openDb(join(dir, 'a.db')).close();
   const db = openDb(join(dir, 'a.db'));
-  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 2);
+  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 3);
+});
+
+test('migration adds avatar_url to an existing channels table without losing rows', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'tp-')), 'old.db');
+  const old = new DatabaseSync(path);
+  old.exec("CREATE TABLE channels (id TEXT PRIMARY KEY, login TEXT NOT NULL, display_name TEXT NOT NULL, added_at INTEGER NOT NULL); INSERT INTO channels VALUES ('c1', 'one', 'One', 7); PRAGMA user_version = 2;");
+  old.close();
+
+  const db = openDb(path);
+  const repo = createRepo(db);
+  assert.deepEqual(repo.getChannel('c1'), { id: 'c1', login: 'one', displayName: 'One', avatarUrl: null });
+  assert.ok((db.prepare('PRAGMA table_info(channels)').all() as { name: string }[]).some((column) => column.name === 'avatar_url'));
+  db.close();
 });
 
 test('Discord link replaces identity, clears a stale DM channel, and unlink removes the cached channel', () => {

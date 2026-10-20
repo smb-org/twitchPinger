@@ -7,6 +7,7 @@ import { openDb } from '../db/db.ts';
 import { createRepo } from '../db/repo.ts';
 import { loadConfig } from '../api/config.ts';
 import { createTwitch } from '../api/twitch.ts';
+import type { TwitchUser } from '../api/twitch.ts';
 import { hashSessionId } from '../api/session.ts';
 import { msg, rule } from '../rules/fixtures.ts';
 import { createService } from './wire.ts';
@@ -22,22 +23,27 @@ function setup(env: Record<string, string> = {}, users: { id: string; login: str
   let t = 1_000_000;
   const clock = { now: () => t, advance: (ms: number) => { t += ms; } };
   const posts: { url: string; headers: Record<string, string>; body: string }[] = [];
+  const logs: string[] = [];
+  const loginBatchSizes: number[] = [];
   const post = async (url: string, init: any) => { posts.push({ url, headers: init.headers, body: init.body }); return { status, body: '' }; };
   const timers: Timers & { fns: (() => void)[] } = { fns: [], set(fn) { this.fns.push(fn); return fn; }, clear(h) { this.fns = this.fns.filter((f) => f !== h); }, every: () => null };
   const fetch = (async (input: any) => {
     const url = new URL(String(input));
     const j = (o: unknown) => new Response(JSON.stringify(o), { status: 200 });
     if (url.pathname === '/oauth2/token') return j({ access_token: 'a', expires_in: 3600 });
-    return j({ data: users.map((u) => ({ id: u.id, login: u.login, display_name: u.login })) });
+    const logins = url.searchParams.getAll('login');
+    const ids = url.searchParams.getAll('id');
+    if (logins.length) loginBatchSizes.push(logins.length);
+    return j({ data: users.filter((u) => logins.length ? logins.includes(u.login) : ids.length ? ids.includes(u.id) : true).map((u) => ({ id: u.id, login: u.login, display_name: u.login, profile_image_url: `https://img.example/${u.login}.png` })) });
   }) as typeof globalThis.fetch;
   const twitch = createTwitch({ clientId: 'c', clientSecret: 's', authBase: 'https://auth.test', helixBase: 'https://helix.test', fetch });
-  const svc = createService({ config, db, repo, twitch, now: clock.now, timers, post: post as never, alertPost: post as never, r2: { enabled: false, uploadAndPrune: async () => {} }, log: () => {}, ...extra });
+  const svc = createService({ config, db, repo, twitch, now: clock.now, timers, post: post as never, alertPost: post as never, r2: { enabled: false, uploadAndPrune: async () => {} }, log: (line) => logs.push(line), ...extra });
   repo.createUser({ id: 'o1', login: 'owner', displayName: 'Owner', isAdmin: false, invitedBy: null, now: 1 });
-  return { svc, repo, clock, posts, timers, config };
+  return { svc, repo, clock, posts, timers, config, twitch, logs, loginBatchSizes };
 }
 
 function seed(s: ReturnType<typeof setup>, targetUrl = 'https://ntfy.example/topic') {
-  s.repo.upsertChannel({ id: 'c1', login: 'sbx_tv', displayName: 'sbx_tv' }, 1);
+  s.repo.upsertChannel({ id: 'c1', login: 'sbx_tv', displayName: 'SBX TV', avatarUrl: 'https://img.example/sbx_tv.png' }, 1);
   s.repo.addUserChannel('o1', 'c1');
   s.repo.saveTarget({ id: 't1', ownerId: 'o1', kind: 'ntfy', name: 'phone', url: targetUrl, token: null });
   s.repo.saveRule(rule({ burst: { threshold: 1, windowSec: 60, countBy: 'users' }, targetIds: ['t1'] }), 1);
@@ -55,6 +61,21 @@ test('hit is recorded, delivered with injected ntfy token, result stored', async
   const ping = s.repo.lastPings('o1')[0];
   assert.equal(ping.ruleId, 'r1');
   assert.deepEqual(ping.results.map((r) => [r.targetId, r.ok]), [['t1', true]]);
+});
+
+test('engine hits use stored channel display name and avatar in Discord embeds', async () => {
+  const s = setup();
+  s.repo.upsertChannel({ id: 'c1', login: 'sbx_tv', displayName: 'SBX TV', avatarUrl: 'https://img.example/sbx_tv.png' }, 1);
+  s.repo.addUserChannel('o1', 'c1');
+  s.repo.saveTarget({ id: 'discord', ownerId: 'o1', kind: 'discord', name: 'Discord', url: 'https://discord.com/api/webhooks/1/token', token: null });
+  s.repo.saveRule(rule({ burst: { threshold: 1, windowSec: 60, countBy: 'users' }, targetIds: ['discord'] }), 1);
+  s.svc.onConfigChanged();
+  s.timers.fns.shift()!();
+  s.svc.fakeReader!.push(msg('!play now'));
+  await s.svc.deliverer.flushAll();
+  const payload = JSON.parse(s.posts[0]!.body);
+  assert.equal(payload.embeds[0].author.name, 'SBX TV');
+  assert.equal(payload.embeds[0].author.icon_url, 'https://img.example/sbx_tv.png');
 });
 
 test('foreign ntfy URL does not get the app token; foreign-owned target is skipped', async () => {
@@ -154,6 +175,33 @@ test('daily job re-resolves a renamed channel login and re-applies config', asyn
   await s.svc.runDaily();
   assert.equal(s.repo.getChannel('c1')!.login, 'sbx_new');
   assert.equal(s.timers.fns.length, 1);
+});
+
+test('startup backfills null channel avatars in Helix batches of 100', async () => {
+  const users = Array.from({ length: 101 }, (_, i) => ({ id: `c${i}`, login: `channel_${i}` }));
+  const s = setup({}, users);
+  for (const user of users) s.repo.upsertChannel({ ...user, displayName: user.login }, 1);
+  await s.svc.start();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(s.loginBatchSizes, [100, 1]);
+  assert.equal(s.repo.getChannel('c0')!.avatarUrl, 'https://img.example/channel_0.png');
+  assert.equal(s.repo.getChannel('c100')!.avatarUrl, 'https://img.example/channel_100.png');
+});
+
+test('startup does not wait for avatar lookup and logs a best-effort failure', async () => {
+  const s = setup();
+  s.repo.upsertChannel({ id: 'c1', login: 'sbx_tv', displayName: 'SBX TV' }, 1);
+  let rejectLookup!: (error: Error) => void;
+  const pending = new Promise<TwitchUser[]>((_resolve, reject) => { rejectLookup = reject; });
+  s.twitch.getUsersByLogin = () => pending;
+  const outcome = await Promise.race([
+    s.svc.start().then(() => 'started'),
+    new Promise<string>((resolve) => setTimeout(() => resolve('blocked'), 50)),
+  ]);
+  assert.equal(outcome, 'started');
+  rejectLookup(new Error('Twitch unavailable'));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.match(s.logs.join('\n'), /channel avatar backfill failed/);
 });
 
 test('token only for same-origin ntfy URLs, not prefix-lookalike hosts', async () => {

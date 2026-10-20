@@ -5,7 +5,7 @@ import { msg, rule } from './fixtures.ts';
 import type { Hit } from '../types.ts';
 
 function setup(last: number | null = null) {
-  const hits: Hit[] = [];
+  const hits: Omit<Hit, 'channelDisplayName' | 'channelAvatar'>[] = [];
   const stored: number[] = [];
   let t = 1_000_000;
   const e = createEngine({
@@ -26,7 +26,7 @@ test('fires once, persists last-fired, builds hit', () => {
   e.ingest(msg('!play y', { userId: 'u2' }));
   assert.equal(hits.length, 1);
   assert.deepEqual(stored, [1_000_000]);
-  assert.deepEqual(hits[0], { ruleId: 'r1', ruleName: 'Play', ownerId: 'o1', channelId: 'c1', channel: 'sbx_tv', count: 1, sample: m, firedAt: 1_000_000 });
+  assert.deepEqual(hits[0], { ruleId: 'r1', ruleName: 'Play', ownerId: 'o1', channelId: 'c1', channel: 'sbx_tv', count: 1, burst: one, cooldownSec: 300, sample: m, firedAt: 1_000_000 });
   assert.equal(e.stats().messages, 2);
 });
 
@@ -73,7 +73,7 @@ test('disabled rule and other channels are ignored', () => {
 
 test('rule with uncompilable matcher is skipped and logged, others still fire', () => {
   const logs: string[] = [];
-  const hits: Hit[] = [];
+  const hits: Omit<Hit, 'channelDisplayName' | 'channelAvatar'>[] = [];
   const e = createEngine({ now: () => 1_000_000, onHit: (h) => hits.push(h), getLastFired: () => null, setLastFired: () => {}, log: (l) => logs.push(l) });
   assert.doesNotThrow(() => e.setRules([
     rule({ id: 'bad', matcher: { mode: 'regex', pattern: '(', caseSensitive: false }, burst: one }),

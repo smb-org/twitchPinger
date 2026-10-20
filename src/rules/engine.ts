@@ -5,7 +5,7 @@ import type { BurstState } from './burst.ts';
 
 export interface EngineDeps {
   now: () => number;
-  onHit: (hit: Hit) => void;
+  onHit: (hit: Omit<Hit, 'channelDisplayName' | 'channelAvatar'>) => void;
   log?: (line: string) => void;
   getLastFired: (ruleId: string, channelId: string) => number | null;
   setLastFired: (ruleId: string, channelId: string, ts: number) => void;
@@ -99,7 +99,7 @@ export function createEngine(deps: EngineDeps) {
         c.tallies.set(msg.channelId, { since: firedAt, mentions: window.length, chatters });
         c.windows.set(msg.channelId, []);
         deps.setLastFired(rule.id, msg.channelId, firedAt);
-        deps.onHit({ ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: msg.channelId, channel: msg.channel, count: r.count, sample: msg, firedAt });
+        deps.onHit({ ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: msg.channelId, channel: msg.channel, count: r.count, burst: rule.burst, cooldownSec: rule.cooldownSec, sample: msg, firedAt });
       }
       const micros = (performance.now() - t0) * 1000;
       messages++;

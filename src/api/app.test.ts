@@ -29,7 +29,7 @@ function fakeFetch(): typeof fetch {
     const auth = String(init?.headers?.Authorization ?? '');
     if (url.pathname === '/helix/users') {
       const logins = url.searchParams.getAll('login');
-      if (logins.length) return json({ data: logins.filter((l) => CHANNELS.includes(l)).map((l) => ({ id: `ch-${l}`, login: l, display_name: l.toUpperCase() })) });
+      if (logins.length) return json({ data: logins.filter((l) => CHANNELS.includes(l)).map((l) => ({ id: `ch-${l}`, login: l, display_name: l.toUpperCase(), profile_image_url: `https://img.example/${l}.png` })) });
       const u = USERS[auth.replace('Bearer tok-', '')];
       return u ? json({ data: [u] }) : json({}, 401);
     }
@@ -330,6 +330,7 @@ test('channels: add, unknown, format, per-user and total limits, delete strips r
   const add = (cookie: string, login: string) => a.req('/channels', { method: 'POST', cookie, body: { login } });
   assert.equal((await add(alice, 'Marbles_One')).status, 201);
   assert.equal((await j(await a.req('/channels', { cookie: alice }))).channels[0].login, 'marbles_one');
+  assert.equal(a.repo.getChannel('ch-marbles_one')!.avatarUrl, 'https://img.example/marbles_one.png');
   assert.equal((await add(alice, 'marbles_one')).status, 200); // idempotent
   const unknown = await add(alice, 'nobody_here');
   assert.equal(unknown.status, 404);
@@ -425,6 +426,7 @@ test('rule test sends a synthetic hit to owned targets without changing rule sta
   assert.equal(a.ruleTests.length, 2);
   const { hit } = a.ruleTests[0];
   assert.deepEqual([hit.ruleId, hit.ruleName, hit.ownerId, hit.channelId, hit.channel, hit.count, hit.firedAt], [rule.id, 'Marbles Play', '2', ch.id, 'marbles_one', 5, 1_000_000]);
+  assert.deepEqual([hit.channelDisplayName, hit.channelAvatar, hit.burst, hit.cooldownSec], ['MARBLES_ONE', 'https://img.example/marbles_one.png', { threshold: 5, windowSec: 30, countBy: 'messages' }, 300]);
   assert.deepEqual([hit.sample.displayName, hit.sample.text, hit.sample.sentAt, hit.sample.receivedAt], ['Test', '!play', 1_000_000, 1_000_000]);
   assert.equal(a.repo.getRule(rule.id)!.updatedAt, ruleBefore!.updatedAt);
   assert.deepEqual(a.repo.getRule(rule.id)!.burst, ruleBefore!.burst);

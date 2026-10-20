@@ -64,6 +64,7 @@ const MIGRATIONS: string[] = [
   );
   ALTER TABLE targets ADD COLUMN last_error TEXT;
   `,
+  `ALTER TABLE channels ADD COLUMN avatar_url TEXT;`,
 ];
 
 export function openDb(path: string): DatabaseSync {

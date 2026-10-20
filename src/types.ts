@@ -17,7 +17,11 @@ export type TargetKind = 'discord' | 'discord_dm' | 'ntfy';
 /** A delivery destination owned by a user. */
 export interface Target { id: string; ownerId: string; kind: TargetKind; name: string; url: string; token: string | null; failCount: number; status: 'ok' | 'failing'; lastError?: string | null; }
 /** A fired rule, ready for delivery. */
-export interface Hit { ruleId: string; ruleName: string; ownerId: string; channelId: string; channel: string; count: number; sample: ChatMessage; firedAt: number; }
+export interface Hit {
+  ruleId: string; ruleName: string; ownerId: string; channelId: string; channel: string;
+  channelDisplayName: string; channelAvatar: string | null;
+  count: number; burst: Burst; cooldownSec: number; sample: ChatMessage; firedAt: number;
+}
 /** Snapshot of the chat reader connection state. */
 export interface ReaderHealth { connected: boolean; since: number; joined: number; desired: number; lastMessageAt: number | null; }
 /** Default operational limits (overridable via env). */

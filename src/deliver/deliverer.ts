@@ -1,5 +1,5 @@
 import type { Hit, Target } from '../types.ts';
-import { formatBatch, formatSingle, toDiscord, toNtfy } from './format.ts';
+import { discordEmbedsTextLength, formatBatch, formatSingle, toDiscord, toDiscordEmbeds, toNtfy } from './format.ts';
 import type { Formatted } from './format.ts';
 import { sharedDiscordRequestQueue } from './discord-queue.ts';
 import type { DiscordRequestQueue } from './discord-queue.ts';
@@ -35,6 +35,9 @@ const TEST_TEXT = 'Test von twitchPinger – wenn du das liest, kommt alles an.'
 const DISCORD_API = 'https://discord.com/api/v10';
 const DISCORD_DM_HINT = 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.';
 const DISCORD_UNLINKED = 'Discord nicht verbunden. Verbinde dein Konto erneut.';
+const MAX_DISCORD_EMBEDS = 10;
+const MAX_DISCORD_EMBED_TEXT = 6000;
+const DISCORD_EMBED_TOO_LARGE = 'Discord-Embeds überschreiten 6000 Zeichen.';
 
 interface Win { target: Target; timer: unknown; pending: Hit[] }
 
@@ -59,9 +62,9 @@ export function createDeliverer(deps: DelivererDeps) {
     inflight.add(tracked);
   }
 
-  async function sendOnce(t: Target, f: Formatted): Promise<{ ok: boolean; status?: number; error?: string; retryAfter?: string; retry: boolean }> {
+  async function sendOnce(t: Target, f: Formatted, discordBody?: string): Promise<{ ok: boolean; status?: number; error?: string; retryAfter?: string; retry: boolean }> {
     const req = t.kind === 'discord'
-      ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(toDiscord(f)) }
+      ? { headers: { 'Content-Type': 'application/json' }, body: discordBody ?? JSON.stringify(toDiscord(f)) }
       : toNtfy(f);
     if (t.kind === 'ntfy' && t.token) req.headers.Authorization = `Bearer ${t.token}`;
     try {
@@ -141,7 +144,7 @@ export function createDeliverer(deps: DelivererDeps) {
     return { ok: false, error: 'Discord-Zustellung fehlgeschlagen.' };
   }
 
-  async function sendDiscordDm(t: Target, f: Formatted): Promise<{ ok: boolean; status?: number; error?: string; errorCode?: number }> {
+  async function sendDiscordDm(t: Target, body: string): Promise<{ ok: boolean; status?: number; error?: string; errorCode?: number }> {
     if (deps.discordAvailable === false) return { ok: false, error: 'Discord-Direktnachrichten sind nicht eingerichtet.' };
     const linked = deps.getDiscordLink?.(t.ownerId);
     if (!linked) return { ok: false, error: DISCORD_UNLINKED };
@@ -158,14 +161,14 @@ export function createDeliverer(deps: DelivererDeps) {
       channelId = channel.id;
       deps.cacheDiscordChannel?.(t.ownerId, channelId);
     }
-    return discordRequest(t, recipientId, `${DISCORD_API}/channels/${encodeURIComponent(channelId)}/messages`, JSON.stringify(toDiscord(f)));
+    return discordRequest(t, recipientId, `${DISCORD_API}/channels/${encodeURIComponent(channelId)}/messages`, body);
   }
 
-  async function send(t: Target, f: Formatted): Promise<{ ok: boolean; status?: number; error?: string; errorCode?: number }> {
-    if (t.kind === 'discord_dm') return sendDiscordDm(t, f);
+  async function send(t: Target, f: Formatted, discordBody?: string): Promise<{ ok: boolean; status?: number; error?: string; errorCode?: number }> {
+    if (t.kind === 'discord_dm') return sendDiscordDm(t, discordBody ?? JSON.stringify(toDiscord(f)));
     const c = checkTargetUrl(t.kind, t.url);
     if (!c.ok) return { ok: false, error: c.error };
-    let r = await sendOnce(t, f);
+    let r = await sendOnce(t, f, discordBody);
     if (!r.ok && r.retry) {
       if (r.status === 429) {
         const delay = retryAfterMs(r.retryAfter);
@@ -176,7 +179,7 @@ export function createDeliverer(deps: DelivererDeps) {
       if (!current || current.url !== t.url) return { ok: false, status: r.status, error: 'Ziel wurde entfernt oder geändert' };
       const retryCheck = checkTargetUrl(current.kind, current.url);
       if (!retryCheck.ok) return { ok: false, status: r.status, error: retryCheck.error };
-      r = await sendOnce(current, f);
+      r = await sendOnce(current, f, discordBody);
     }
     return { ok: r.ok, status: r.status, error: r.error };
   }
@@ -184,11 +187,13 @@ export function createDeliverer(deps: DelivererDeps) {
   function dispatch(t: Target, hits: Hit[]) {
     const current = deps.getTarget ? deps.getTarget(t.id) : t;
     if (!current) return;
+    const isDiscord = current.kind === 'discord' || current.kind === 'discord_dm';
     const batches: Hit[][] = [];
     let batch: Hit[] = [];
     for (const hit of hits) {
       const next = [...batch, hit];
-      if ((current.kind === 'discord' || current.kind === 'discord_dm') && batch.length && toDiscord(formatBatch(next)).content.length > 2000) {
+      const repeatsChannelUrl = batch.some((previous) => previous.channel.toLowerCase() === hit.channel.toLowerCase());
+      if (isDiscord && batch.length && (repeatsChannelUrl || batch.length >= MAX_DISCORD_EMBEDS || discordEmbedsTextLength(toDiscordEmbeds(next)) > MAX_DISCORD_EMBED_TEXT)) {
         batches.push(batch);
         batch = [hit];
       } else batch = next;
@@ -196,11 +201,16 @@ export function createDeliverer(deps: DelivererDeps) {
     if (batch.length) batches.push(batch);
     for (const group of batches) {
       const formatted = formatBatch(group);
-      if ((current.kind === 'discord' || current.kind === 'discord_dm') && toDiscord(formatted).content.length > 2000) {
-        track(Promise.resolve().then(() => deps.onResult({ targetId: current.id, ok: false, error: 'Discord-Nachricht überschreitet 2000 Zeichen', hits: group, sentAt: deps.now() })));
-        continue;
+      let discordBody: string | undefined;
+      if (isDiscord) {
+        const payload = toDiscordEmbeds(group);
+        if (group.length > MAX_DISCORD_EMBEDS || discordEmbedsTextLength(payload) > MAX_DISCORD_EMBED_TEXT) {
+          track(Promise.resolve().then(() => deps.onResult({ targetId: current.id, ok: false, error: DISCORD_EMBED_TOO_LARGE, hits: group, sentAt: deps.now() })));
+          continue;
+        }
+        discordBody = JSON.stringify(payload);
       }
-      track(send(current, formatted).then((r) => {
+      track(send(current, formatted, discordBody).then((r) => {
         deps.onResult({ targetId: current.id, ...r, hits: group, sentAt: deps.now() });
       }));
     }
@@ -233,7 +243,10 @@ export function createDeliverer(deps: DelivererDeps) {
       return r.ok ? { ok: true } : { ok: false, error: r.error, ...(r.errorCode !== undefined ? { errorCode: r.errorCode } : {}) };
     },
     async sendRuleTest(t: Target, hit: Hit): Promise<{ ok: boolean; error?: string; errorCode?: number }> {
-      const r = await send(t, formatSingle(hit, true));
+      const isDiscord = t.kind === 'discord' || t.kind === 'discord_dm';
+      const payload = isDiscord ? toDiscordEmbeds([hit], true) : undefined;
+      if (payload && discordEmbedsTextLength(payload) > MAX_DISCORD_EMBED_TEXT) return { ok: false, error: DISCORD_EMBED_TOO_LARGE };
+      const r = await send(t, formatSingle(hit, true), payload ? JSON.stringify(payload) : undefined);
       return r.ok ? { ok: true } : { ok: false, error: r.error, ...(r.errorCode !== undefined ? { errorCode: r.errorCode } : {}) };
     },
     /** Sends everything still collected and waits for all in-flight sends. */

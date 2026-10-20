@@ -269,7 +269,7 @@ export function createApi(deps: ApiDeps) {
     let found;
     try { found = (await twitch.getUsersByLogin([login]))[0]; } catch { throw new ApiError(502, 'twitch_unavailable', 'Twitch ist gerade nicht erreichbar.'); }
     if (!found) throw new ApiError(404, 'channel_unknown', 'Diesen Channel gibt es auf Twitch nicht.');
-    const ch = { id: found.id, login: found.login, displayName: found.displayName };
+    const ch = { id: found.id, login: found.login, displayName: found.displayName, avatarUrl: found.avatarUrl };
     if (repo.listUserChannels(u.id).some((x) => x.id === ch.id)) return c.json({ channel: ch });
     if (repo.countUserChannels(u.id) >= config.limits.MAX_CHANNELS_PER_USER) throw new ApiError(409, 'limit_user_channels', `Du kannst höchstens ${config.limits.MAX_CHANNELS_PER_USER} Channels beobachten.`);
     if (!repo.isChannelDesired(ch.id) && repo.countDesiredChannels() >= config.limits.MAX_CHANNELS_TOTAL) throw new ApiError(409, 'limit_total_channels', 'Der Dienst beobachtet bereits die maximale Zahl an Channels.');
@@ -379,7 +379,11 @@ export function createApi(deps: ApiDeps) {
       channel: channelLogin, channelId: channel?.id ?? '', userId: 'test', login: 'test', displayName: 'Test',
       text: sampleText, badges: [], sentAt: firedAt, receivedAt: firedAt,
     };
-    const hit: Hit = { ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: sample.channelId, channel: channelLogin, count: rule.burst.threshold, sample, firedAt };
+    const hit: Hit = {
+      ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: sample.channelId, channel: channelLogin,
+      channelDisplayName: channel?.displayName ?? channelLogin, channelAvatar: channel?.avatarUrl ?? null,
+      count: rule.burst.threshold, burst: rule.burst, cooldownSec: rule.cooldownSec, sample, firedAt,
+    };
     const results = await Promise.all(targets.map(async (target) => {
       const result = await deps.deliverer.sendRuleTest(target, hit).catch(() => ({ ok: false, error: 'Zustellung fehlgeschlagen.' }));
       return { targetId: target.id, kind: target.kind, ok: result.ok, ...(result.error ? { error: result.error } : {}) };

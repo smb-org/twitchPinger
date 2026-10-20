@@ -99,7 +99,13 @@ export function createService(deps: ServiceDeps) {
     log,
     getLastFired: repo.getLastFired,
     setLastFired: repo.setLastFired,
-    onHit(hit) {
+    onHit(engineHit) {
+      const channel = repo.getChannel(engineHit.channelId);
+      const hit: Hit = {
+        ...engineHit,
+        channelDisplayName: channel?.displayName ?? engineHit.channel,
+        channelAvatar: channel?.avatarUrl ?? null,
+      };
       const rule = repo.getRule(hit.ruleId);
       const owner = rule && repo.getUser(rule.ownerId);
       if (!rule || !rule.enabled || !owner || owner.locked) return;
@@ -163,6 +169,19 @@ export function createService(deps: ServiceDeps) {
     if (changed) onConfigChanged();
   }
 
+  async function backfillChannelAvatars(): Promise<void> {
+    const missing = repo.listAllChannels().filter((channel) => channel.avatarUrl === null);
+    for (let i = 0; i < missing.length; i += 100) {
+      const batch = missing.slice(i, i + 100);
+      try {
+        const users = await twitch.getUsersByLogin(batch.map((channel) => channel.login));
+        for (const user of users) if (user.avatarUrl) repo.updateChannelAvatar(user.id, user.avatarUrl);
+      } catch (e) {
+        log(`channel avatar backfill failed: ${e}`);
+      }
+    }
+  }
+
   let backupFailed = false;
   async function backup(): Promise<void> {
     try {
@@ -209,6 +228,7 @@ export function createService(deps: ServiceDeps) {
     async start(): Promise<void> {
       applyConfig();
       await reader.start();
+      void backfillChannelAvatars().catch((e) => log(`channel avatar backfill failed: ${e}`));
       reresolveChannels().catch((e) => log(`re-resolve failed: ${e}`));
       handles.push(
         timers.every(() => { checkDeadMan(); }, 30_000),

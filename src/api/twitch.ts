@@ -7,7 +7,7 @@ export interface TwitchConfig {
   now?: () => number;
 }
 
-export interface TwitchUser { id: string; login: string; displayName: string }
+export interface TwitchUser { id: string; login: string; displayName: string; avatarUrl: string | null }
 
 const FOLLOW_CAP = 500;
 
@@ -31,7 +31,10 @@ export function createTwitch(cfg: TwitchConfig) {
     return app.token;
   }
 
-  const toUser = (u: any): TwitchUser => ({ id: String(u.id), login: String(u.login), displayName: String(u.display_name) });
+  const toUser = (u: any): TwitchUser => ({
+    id: String(u.id), login: String(u.login), displayName: String(u.display_name),
+    avatarUrl: typeof u.profile_image_url === 'string' && u.profile_image_url ? u.profile_image_url : null,
+  });
 
   async function helix(path: string, token: string): Promise<any> {
     return json(await f(`${cfg.helixBase}${path}`, { headers: { Authorization: `Bearer ${token}`, 'Client-Id': cfg.clientId } }), path);
@@ -63,7 +66,7 @@ export function createTwitch(cfg: TwitchConfig) {
       let cursor = '';
       while (out.length < FOLLOW_CAP) {
         const j = await helix(`/channels/followed?user_id=${encodeURIComponent(userId)}&first=100${cursor ? `&after=${encodeURIComponent(cursor)}` : ''}`, token);
-        for (const c of j.data as any[]) out.push({ id: String(c.broadcaster_id), login: String(c.broadcaster_login), displayName: String(c.broadcaster_name) });
+        for (const c of j.data as any[]) out.push({ id: String(c.broadcaster_id), login: String(c.broadcaster_login), displayName: String(c.broadcaster_name), avatarUrl: null });
         cursor = j.pagination?.cursor ?? '';
         if (!cursor || !(j.data as any[]).length) break;
       }

@@ -6,7 +6,7 @@ export interface DiscordLinkRow { userId: string; discordUserId: string; usernam
 export interface SessionRow { userId: string; expiresAt: number; follows: FollowSuggestion[] }
 export interface FollowSuggestion { id: string; login: string; displayName: string }
 export interface InviteRow { id: string; codeHash: string; createdBy: string; createdAt: number; expiresAt: number; usedBy: string | null; usedAt: number | null; revoked: boolean }
-export interface ChannelRow { id: string; login: string; displayName: string }
+export interface ChannelRow { id: string; login: string; displayName: string; avatarUrl: string | null }
 export interface DeliveryResult { targetId: string; ok: boolean; ts: number }
 export interface Ping { hitId: number; firedAt: number; ruleId: string; ruleName: string; channelId: string; channel: string | null; count: number; sentTs: number | null; hasTargets: boolean; results: (DeliveryResult & { targetName: string | null })[] }
 export type RuleInput = Omit<Rule, 'updatedAt'>;
@@ -16,7 +16,7 @@ type Row = Record<string, any>;
 const bool = (v: unknown): boolean => v === 1;
 const user = (r: Row): UserRow => ({ id: r.id, login: r.login, displayName: r.display_name, isAdmin: bool(r.is_admin), locked: bool(r.locked), invitedBy: r.invited_by, createdAt: r.created_at });
 const invite = (r: Row): InviteRow => ({ id: r.id, codeHash: r.code_hash, createdBy: r.created_by, createdAt: r.created_at, expiresAt: r.expires_at, usedBy: r.used_by, usedAt: r.used_at, revoked: bool(r.revoked) });
-const channel = (r: Row): ChannelRow => ({ id: r.id, login: r.login, displayName: r.display_name });
+const channel = (r: Row): ChannelRow => ({ id: r.id, login: r.login, displayName: r.display_name, avatarUrl: r.avatar_url ?? null });
 const rule = (r: Row): Rule => ({
   id: r.id, ownerId: r.owner_id, name: r.name, enabled: bool(r.enabled),
   matcher: JSON.parse(r.matcher_json), sender: JSON.parse(r.sender_json), burst: JSON.parse(r.burst_json),
@@ -123,10 +123,12 @@ export function createRepo(db: DatabaseSync) {
     markInviteUsed: (id: string, userId: string, now: number) => { run('UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?', userId, now, id); },
 
     // channels
-    upsertChannel: (c: ChannelRow, now: number) => {
-      run('INSERT INTO channels (id, login, display_name, added_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET login = excluded.login, display_name = excluded.display_name', c.id, c.login, c.displayName, now);
+    upsertChannel: (c: Omit<ChannelRow, 'avatarUrl'> & { avatarUrl?: string | null }, now: number) => {
+      run(`INSERT INTO channels (id, login, display_name, added_at, avatar_url) VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+        login = excluded.login, display_name = excluded.display_name, avatar_url = COALESCE(excluded.avatar_url, channels.avatar_url)`, c.id, c.login, c.displayName, now, c.avatarUrl ?? null);
     },
     updateChannelLogin: (id: string, login: string, displayName: string) => { run('UPDATE channels SET login = ?, display_name = ? WHERE id = ?', login, displayName, id); },
+    updateChannelAvatar: (id: string, avatarUrl: string) => { run('UPDATE channels SET avatar_url = ? WHERE id = ?', avatarUrl, id); },
     addUserChannel: (userId: string, channelId: string) => { run('INSERT OR IGNORE INTO user_channels (user_id, channel_id) VALUES (?,?)', userId, channelId); },
     /** Unsubscribes, drops the channel from the user's rules and deletes the channel if nobody follows it anymore. */
     removeUserChannel(userId: string, channelId: string) {

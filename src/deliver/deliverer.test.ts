@@ -68,7 +68,7 @@ test('window semantics', async () => {
   advance(10_000);
   await settle();
   assert.equal(posts.length, 2);
-  assert.match(posts[1]!.body, /\+1 weitere/);
+  assert.equal(posts[1]!.body, '5 Chatter in 60 s\nRegel: B\n\n5 Chatter in 60 s\nRegel: C\nChannel: chan');
   // new window open: hit is collected
   d.deliver(hit({ ruleName: 'D' }), [target()]);
   await settle();
@@ -89,7 +89,8 @@ test('rule test sends immediately through formatting without opening a batch or 
   assert.deepEqual(result, { ok: true });
   assert.equal(s.posts.length, 1);
   assert.equal(s.posts[0]!.headers.Title, '[Test] chan: Pattern');
-  assert.match(s.posts[0]!.body, /^\[Test\]\nRegel: Pattern/);
+  assert.match(s.posts[0]!.body, /^\[Test\]\n5 Chatter in 60 s\nRegel: Pattern/);
+  assert.ok(!s.posts[0]!.body.includes('!play'));
   assert.equal(s.results.length, 0);
   s.advance(10_000);
   await new Promise((resolve) => setImmediate(resolve));
@@ -216,21 +217,59 @@ test('queued delivery resolves the target at dispatch time and drops deleted tar
   assert.deepEqual(second.posts.map((p) => p.url), [t.url]);
 });
 
-test('Discord batches split before the 2000-character limit and attribute every hit', async () => {
+test('Discord batches split at ten embeds and attribute every hit without samples', async () => {
   const s = setup();
   const t = target({ kind: 'discord', url: 'https://discord.com/api/webhooks/1/token' });
-  const hits = Array.from({ length: 50 }, (_, i) => hit({ ruleName: `${String(i).padStart(2, '0')}-${'r'.repeat(50)}` }));
+  const hits = Array.from({ length: 21 }, (_, i) => hit({ ruleName: `rule-${String(i).padStart(2, '0')}`, channel: `chan-${i}` }));
   for (const h of hits) s.d.deliver(h, [t]);
   s.advance(10_000);
   await s.d.flushAll();
 
-  assert.ok(s.posts.length > 1);
-  const bodies = s.posts.map((p) => JSON.parse(p.body).content as string);
-  assert.ok(bodies.every((body) => body.length <= 2000));
-  assert.ok(hits.every((h) => bodies.some((body) => body.includes(h.ruleName))));
+  const bodies = s.posts.map((p) => JSON.parse(p.body) as { content: string; embeds: { title: string }[] });
+  assert.deepEqual(bodies.map((body) => body.embeds.length), [1, 10, 10]);
+  assert.ok(bodies.every((body) => body.content === '' && body.embeds.length <= 10));
+  assert.ok(hits.every((h) => bodies.some((body) => body.embeds.some((embed) => embed.title === h.ruleName))));
+  assert.ok(s.posts.every((p) => !p.body.includes('!play')));
   const delivered = s.results.flatMap((r) => r.hits);
   assert.equal(delivered.length, hits.length);
   assert.ok(s.results.every((r) => r.ok));
+});
+
+test('Discord sends repeated channel URLs in separate messages so every embed remains visible', async () => {
+  const s = setup();
+  const t = target({ kind: 'discord', url: 'https://discord.com/api/webhooks/1/token' });
+  s.d.deliver(hit({ ruleName: 'A', channel: 'first' }), [t]);
+  s.d.deliver(hit({ ruleName: 'B', channel: 'repeated' }), [t]);
+  s.d.deliver(hit({ ruleName: 'C', channel: 'repeated' }), [t]);
+  s.d.deliver(hit({ ruleName: 'D', channel: 'other' }), [t]);
+  s.advance(10_000);
+  await s.d.flushAll();
+
+  const bodies = s.posts.map((p) => JSON.parse(p.body) as { embeds: { title: string; url: string }[] });
+  assert.deepEqual(bodies.map((body) => body.embeds.length), [1, 1, 2]);
+  assert.deepEqual(bodies.flatMap((body) => body.embeds.map((embed) => embed.title)), ['A', 'B', 'C', 'D']);
+  assert.ok(bodies.every((body) => new Set(body.embeds.map((embed) => embed.url)).size === body.embeds.length));
+});
+
+test('Discord rule tests send an embed with test markers', async () => {
+  const s = setup();
+  const t = target({ kind: 'discord', url: 'https://discord.com/api/webhooks/1/token' });
+  assert.deepEqual(await s.d.sendRuleTest(t, hit()), { ok: true });
+  const body = JSON.parse(s.posts[0]!.body);
+  assert.equal(body.embeds[0].title, '[Test] Play');
+  assert.equal(body.embeds[0].color, 0x6B7280);
+  assert.equal(body.embeds[0].footer.text, 'twitchPinger · Test');
+  assert.ok(!s.posts[0]!.body.includes('!play'));
+});
+
+test('Discord rejects a batch that exceeds the aggregate 6000-character embed limit', async () => {
+  const s = setup();
+  const t = target({ kind: 'discord', url: 'https://discord.com/api/webhooks/1/token' });
+  s.d.deliver(hit({ ruleName: 'r'.repeat(6001) }), [t]);
+  await s.d.flushAll();
+  assert.equal(s.posts.length, 0);
+  assert.equal(s.results[0]!.ok, false);
+  assert.match(s.results[0]!.error ?? '', /6000 Zeichen/);
 });
 
 test('Discord DM opens and caches a user channel, then sends with no parsed mentions', async () => {
@@ -243,7 +282,10 @@ test('Discord DM opens and caches a user channel, then sends with no parsed ment
   assert.deepEqual(JSON.parse(s.discordPosts[0]!.body), { recipient_id: 'discord-user' });
   assert.equal(s.discordPosts[1]!.url, 'https://discord.com/api/v10/channels/dm-1/messages');
   assert.equal(s.discordPosts[1]!.headers.Authorization, 'Bot bot-secret');
-  assert.deepEqual(JSON.parse(s.discordPosts[1]!.body).allowed_mentions, { parse: [] });
+  const message = JSON.parse(s.discordPosts[1]!.body);
+  assert.equal(message.content, '');
+  assert.equal(message.embeds[0].title, 'Play');
+  assert.deepEqual(message.allowed_mentions, { parse: [] });
   assert.deepEqual(s.cachedChannels, [{ userId: 'user-1', channelId: 'dm-1' }]);
   assert.equal(s.results[0]!.ok, true);
 });
@@ -297,17 +339,18 @@ test('Discord bot queue paces 100 recipients and honors a global rate limit', as
   assert.equal(s.results.flatMap((result) => result.hits).length, 100);
 });
 
-test('Discord DM batches split at 2000 characters and preserve every hit', async () => {
+test('Discord DM batches split at ten embeds and preserve every hit', async () => {
   const s = setup([], { discordLink: { discordUserId: 'discord-user', channelId: 'dm-1' } });
   const t = target({ id: 'dm-target', ownerId: 'user-1', kind: 'discord_dm', url: '' });
-  const hits = Array.from({ length: 50 }, (_, i) => hit({ ruleName: `${String(i).padStart(2, '0')}-${'r'.repeat(50)}` }));
+  const hits = Array.from({ length: 21 }, (_, i) => hit({ ruleName: `rule-${String(i).padStart(2, '0')}`, channel: `chan-${i}` }));
   for (const h of hits) s.d.deliver(h, [t]);
   s.advance(10_000);
   await s.d.flushAll();
-  const contents = s.discordPosts.filter((p) => p.url.endsWith('/messages')).map((p) => JSON.parse(p.body).content as string);
-  assert.ok(contents.length > 1);
-  assert.ok(contents.every((content) => content.length <= 2000));
-  assert.ok(hits.every((h) => contents.some((content) => content.includes(h.ruleName))));
+  const messages = s.discordPosts.filter((p) => p.url.endsWith('/messages')).map((p) => JSON.parse(p.body) as { content: string; embeds: { title: string }[] });
+  assert.deepEqual(messages.map((message) => message.embeds.length), [1, 10, 10]);
+  assert.ok(messages.every((message) => message.content === '' && message.embeds.length <= 10));
+  assert.ok(hits.every((h) => messages.some((message) => message.embeds.some((embed) => embed.title === h.ruleName))));
+  assert.ok(s.discordPosts.every((p) => !p.body.includes('!play')));
   assert.equal(s.results.flatMap((r) => r.hits).length, hits.length);
 });
 
