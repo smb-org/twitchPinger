@@ -44,6 +44,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   return {
     port: Number(str('PORT', '12080')),
     publicUrl: str('PUBLIC_URL').replace(/\/+$/, ''),
+    version: str('APP_VERSION', 'dev'),
     dataDir: str('DATA_DIR', '/data'),
     sessionSecret: str('SESSION_SECRET'),
     clientId: str('TWITCH_CLIENT_ID'),

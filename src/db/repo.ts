@@ -7,6 +7,7 @@ export interface SessionRow { userId: string; expiresAt: number; follows: Follow
 export interface FollowSuggestion { id: string; login: string; displayName: string }
 export interface InviteRow { id: string; codeHash: string; createdBy: string; createdAt: number; expiresAt: number; usedBy: string | null; usedAt: number | null; revoked: boolean }
 export interface ChannelRow { id: string; login: string; displayName: string; avatarUrl: string | null }
+export interface AdminChannelRow extends ChannelRow { users: number; rules: number }
 export interface DeliveryResult { targetId: string; ok: boolean; ts: number }
 export interface Ping { hitId: number; firedAt: number; ruleId: string; ruleName: string; channelId: string; channel: string | null; count: number; sentTs: number | null; hasTargets: boolean; results: (DeliveryResult & { targetName: string | null })[] }
 export type RuleInput = Omit<Rule, 'updatedAt'>;
@@ -148,6 +149,21 @@ export function createRepo(db: DatabaseSync) {
     countUserChannels: (userId: string) => n('SELECT COUNT(*) n FROM user_channels WHERE user_id = ?', userId),
     desiredChannels: (): ChannelRow[] => all(`SELECT DISTINCT c.* FROM channels c JOIN user_channels uc ON uc.channel_id = c.id
       JOIN users u ON u.id = uc.user_id WHERE u.locked = 0 ORDER BY c.login`).map(channel),
+    listDesiredChannelsWithCounts(): AdminChannelRow[] {
+      const channels: AdminChannelRow[] = all(`SELECT c.*,
+        (SELECT COUNT(*) FROM user_channels uc WHERE uc.channel_id = c.id) users
+        FROM channels c WHERE EXISTS (SELECT 1 FROM user_channels uc JOIN users u ON u.id = uc.user_id
+          WHERE uc.channel_id = c.id AND u.locked = 0) ORDER BY c.login`)
+        .map((r) => ({ ...channel(r), users: Number(r.users), rules: 0 }));
+      const byId = new Map(channels.map((c) => [c.id, c]));
+      for (const r of all('SELECT channel_ids_json FROM rules')) {
+        for (const id of new Set(JSON.parse(r.channel_ids_json) as string[])) {
+          const c = byId.get(id);
+          if (c) c.rules++;
+        }
+      }
+      return channels;
+    },
     desiredChannelLogins(): string[] { return repo.desiredChannels().map((c) => c.login); },
     countDesiredChannels: () => repo.desiredChannels().length,
     isChannelDesired: (id: string) => n(`SELECT COUNT(*) n FROM user_channels uc JOIN users u ON u.id = uc.user_id WHERE uc.channel_id = ? AND u.locked = 0`, id) > 0,

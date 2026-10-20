@@ -43,6 +43,8 @@ test('Discord state is signed, short-lived, and bound to the initiating session 
 test('loadConfig: defaults in dev, required vars in production', () => {
   const c = loadConfig({ PUBLIC_URL: 'https://m.example/' });
   assert.equal(c.publicUrl, 'https://m.example');
+  assert.equal(c.version, 'dev');
+  assert.equal(loadConfig({ APP_VERSION: 'v1.2.0' }).version, 'v1.2.0');
   assert.equal(c.limits.MAX_ACCOUNTS, 100);
   assert.equal(c.authBase, 'https://id.twitch.tv');
   assert.equal(c.discordAvailable, false);

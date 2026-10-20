@@ -92,6 +92,20 @@ test('health transitions and reconcile after reconnect', async () => {
   assert.deepEqual(healths.map((h) => [h.connected, h.joined]), [[false, 0], [true, 1], [false, 0], [true, 1]]);
 });
 
+test('joinedChannels reports only joined desired channels and empties on disconnect', async () => {
+  const { c, r } = setup();
+  await r.start();
+  await r.setChannels(['a', 'b']);
+  assert.deepEqual(r.joinedChannels(), []);
+  c.auth();
+  await new Promise((res) => setImmediate(res));
+  assert.deepEqual(r.joinedChannels(), ['a', 'b']);
+  await r.setChannels(['b']);
+  assert.deepEqual(r.joinedChannels(), ['b']);
+  c.disc(false);
+  assert.deepEqual(r.joinedChannels(), []);
+});
+
 test('reconnect joins the current desired channels after subscriptions change during an outage', async () => {
   const { c, r } = setup();
   await r.start();

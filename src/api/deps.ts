@@ -7,6 +7,7 @@ import type { DiscordOAuth } from './discord.ts';
 /** The subset of the config the API reads. loadConfig() returns a superset. */
 export interface ApiConfig {
   publicUrl: string;
+  version: string;
   sessionSecret: string;
   adminTwitchUserId: string;
   ntfyBaseUrl: string;
@@ -22,6 +23,7 @@ export interface ApiConfig {
 export interface ReaderPort {
   health(): ReaderHealth;
   recent(login: string): ChatMessage[];
+  joinedChannels(): string[];
 }
 
 export type RegexResult = { ok: true } | { ok: false; error: string };

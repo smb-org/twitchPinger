@@ -233,6 +233,7 @@ export function createApi(deps: ApiDeps) {
     const s = repo.getSession(c.get('sessionHash'), now());
     return c.json({
       user: userDto(u), isAdmin: u.isAdmin, limits: config.limits, counts,
+      version: config.version,
       onboarding: { hasChannel: counts.channels > 0, hasTarget: counts.targets > 0, hasRule: counts.rules > 0 },
       discordDm: { available: discordAvailable, username: discordAvailable ? repo.getDiscordLink(u.id)?.username ?? null : null },
       followSuggestions: s?.follows ?? [],
@@ -503,6 +504,13 @@ export function createApi(deps: ApiDeps) {
   app.get('/admin/users', (c) => {
     admin(c);
     return c.json({ users: repo.listUsers().map((x) => ({ id: x.id, login: x.login, displayName: x.displayName, isAdmin: x.isAdmin, locked: x.locked, invitedBy: x.invitedBy, createdAt: x.createdAt, ruleCount: x.ruleCount, channelCount: x.channelCount })) });
+  });
+
+  app.get('/admin/channels', (c) => {
+    admin(c);
+    const joined = new Set(reader.joinedChannels());
+    const channels = repo.listDesiredChannelsWithCounts().map((channel) => ({ ...channel, joined: joined.has(channel.login) }));
+    return c.json({ channels, limit: config.limits.MAX_CHANNELS_TOTAL });
   });
 
   for (const action of ['lock', 'unlock'] as const) {

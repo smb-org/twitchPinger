@@ -20,10 +20,11 @@ export function createFakeReader(opts: { onMessage: (msg: ChatMessage) => void; 
     async start() { emit(); },
     async stop() {},
     async setChannels(logins) {
-      desired = new Set(logins.map((l) => l.trim().toLowerCase()).filter(Boolean));
+      desired = new Set(logins.map((l) => l.trim().toLowerCase().replace(/^#/, '')).filter(Boolean));
       emit();
     },
     health,
+    joinedChannels: () => connected ? [...desired] : [],
     recent: (login) => [...(buffers.get(login.toLowerCase()) ?? [])],
     push(msg) {
       lastMessageAt = msg.receivedAt;

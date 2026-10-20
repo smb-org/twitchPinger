@@ -26,6 +26,7 @@ export interface Reader {
   setChannels(logins: string[]): Promise<void>;
   health(): ReaderHealth;
   recent(login: string): ChatMessage[];
+  joinedChannels(): string[];
 }
 
 export interface ReaderOpts {
@@ -182,6 +183,7 @@ export function createReader(opts: ReaderOpts): Reader {
       await reconcile();
     },
     health,
+    joinedChannels: () => connected ? [...joined].filter((login) => desired.has(login)) : [],
     recent: (login) => [...(buffers.get(login.toLowerCase()) ?? [])],
   };
 }

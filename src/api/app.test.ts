@@ -65,14 +65,14 @@ function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string; 
   const tests: any[] = [];
   const ruleTests: { target: Target; hit: Hit }[] = [];
   const config: ApiConfig = {
-    publicUrl: ORIGIN, sessionSecret: 's'.repeat(32), adminTwitchUserId: opts.admin ?? '1', ntfyBaseUrl: 'https://ntfy.example', insecureCookies: true, discordAvailable: opts.discord ?? false,
+    publicUrl: ORIGIN, sessionSecret: 's'.repeat(32), adminTwitchUserId: opts.admin ?? '1', ntfyBaseUrl: 'https://ntfy.example', insecureCookies: true, discordAvailable: opts.discord ?? false, version: 'v1.2.3+build',
     limits: { ...LIMITS_DEFAULTS, ...over },
   };
   const deps: ApiDeps = {
     config, db, repo,
     twitch: createTwitch({ clientId: 'cid', clientSecret: 'sec', authBase: 'https://auth.test', helixBase: 'https://auth.test/helix', fetch: fakeFetch() }),
     discord: createDiscord({ clientId: opts.discord ? 'discord-client' : '', clientSecret: opts.discord ? 'discord-secret' : '', botToken: opts.discord ? 'discord-bot-token' : '', baseUrl: 'https://discord.test/discord', fetch: fakeDiscordFetch() }),
-    reader: { health: () => readerHealth, recent: (l) => (l === 'marbles_one' ? messages : []) },
+    reader: { health: () => readerHealth, recent: (l) => (l === 'marbles_one' ? messages : []), joinedChannels: () => [] },
     deliverer: {
       sendTest: async (tg: { id: string; ownerId: string; kind: Target['kind']; url: string; token: string | null; name: string }) => { tests.push(tg); return { ok: true }; },
       sendRuleTest: async (tg: Target, hit: Hit) => { ruleTests.push({ target: tg, hit }); return tg.id === 't2' ? { ok: false, error: 'HTTP 500' } : { ok: true }; },
@@ -164,6 +164,7 @@ test('callback: admin bootstrap, session cookie flags, onboarding redirect', asy
   assert.doesNotMatch(l.setCookie, /Secure/); // insecureCookies in tests
   const me = await j(await a.req('/me', { cookie: l.cookie }));
   assert.equal(me.isAdmin, true);
+  assert.equal(me.version, 'v1.2.3+build');
   assert.equal(me.followSuggestions[0].login, 'marbles_one');
   assert.deepEqual(me.onboarding, { hasChannel: false, hasTarget: false, hasRule: false });
   // returning login goes to /
@@ -646,6 +647,30 @@ test('admin: lock semantics, unlock, authorization, onConfigChanged', async () =
   assert.equal((await a.req('/admin/users/999/lock', { method: 'POST', cookie: admin })).status, 404);
   assert.equal((await a.req('/admin/users/2/unlock', { method: 'POST', cookie: admin })).status, 200);
   assert.equal((await a.login('alice')).location, '/');
+});
+
+test('admin channels lists desired channels with usage counts and current joined state', async () => {
+  const a = setup();
+  const { admin, alice } = await member(a);
+  const add = async (cookie: string, login: string) => (await j(await a.req('/channels', { method: 'POST', cookie, body: { login } }))).channel;
+  const one = await add(alice, 'marbles_one');
+  const two = await add(alice, 'marbles_two');
+  await add(admin, 'marbles_one');
+  await a.req('/rules', { method: 'POST', cookie: alice, body: { name: 'both', matcher: { mode: 'contains', pattern: 'x' }, channelIds: [one.id, two.id] } });
+  await a.req('/rules', { method: 'POST', cookie: alice, body: { name: 'one', matcher: { mode: 'contains', pattern: 'y' }, channelIds: [one.id] } });
+  a.deps.reader.joinedChannels = () => ['marbles_one'];
+
+  assert.equal((await a.req('/admin/channels', { cookie: alice })).status, 403);
+  const response = await j(await a.req('/admin/channels', { cookie: admin }));
+  assert.equal(response.limit, 50);
+  assert.deepEqual(response.channels, [
+    { id: one.id, login: 'marbles_one', displayName: 'MARBLES_ONE', avatarUrl: 'https://img.example/marbles_one.png', users: 2, rules: 2, joined: true },
+    { id: two.id, login: 'marbles_two', displayName: 'MARBLES_TWO', avatarUrl: 'https://img.example/marbles_two.png', users: 1, rules: 1, joined: false },
+  ]);
+  await a.req('/admin/users/2/lock', { method: 'POST', cookie: admin });
+  assert.deepEqual((await j(await a.req('/admin/channels', { cookie: admin }))).channels, [
+    { id: one.id, login: 'marbles_one', displayName: 'MARBLES_ONE', avatarUrl: 'https://img.example/marbles_one.png', users: 2, rules: 2, joined: true },
+  ]);
 });
 
 test('unlock preserves the global desired-channel capacity', async () => {

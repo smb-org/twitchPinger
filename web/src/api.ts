@@ -46,6 +46,7 @@ export interface Limits { MAX_ACCOUNTS: number; MAX_CHANNELS_TOTAL: number; MAX_
 export interface Channel { id: string; login: string; displayName: string }
 export interface Me {
   user: { id: string; login: string; displayName: string };
+  version: string;
   isAdmin: boolean;
   limits: Limits;
   counts: { channels: number; rules: number; targets: number; openInvites: number };
@@ -65,5 +66,6 @@ export interface Ping { hitId: number; firedAt: number; ruleId: string; ruleName
 export interface TargetDto { id: string; kind: TargetKind; name: string; url: string; failCount: number; status: 'ok' | 'failing' | 'unlinked' | 'unavailable'; failureHint: string | null }
 export interface InviteDto { id: string; createdAt: number; expiresAt: number; usedAt: number | null; usedBy: string | null; status: 'open' | 'used' | 'revoked' | 'expired' }
 export interface AdminUser { id: string; login: string; displayName: string; isAdmin: boolean; locked: boolean; invitedBy: string | null; createdAt: number; ruleCount: number; channelCount: number }
+export interface AdminChannel { id: string; login: string; displayName: string; avatarUrl: string | null; users: number; rules: number; joined: boolean }
 export interface PreviewMsg { sentAt: number; userId: string; login: string; displayName: string; text: string; badges: Badge[] }
 export type { Rule, MatchMode, Badge };
