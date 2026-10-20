@@ -48,10 +48,11 @@ web          Preact-SPA
    ```
 2. Werte in `.env` eintragen (siehe [Konfiguration](#konfiguration)), u. a. `PUBLIC_URL=https://pinger.example.com` und `NTFY_BASE_URL=https://ntfy.example.com`.
 3. ntfy einrichten: Token und Passwort-Hash erzeugen, wie in [ntfy/README.md](ntfy/README.md) beschrieben. In `ntfy/server.yml` muss `base-url` auf deinen eigenen ntfy-Host zeigen (`NTFY_BASE_URL` aus der `.env` überschreibt den Wert zur Laufzeit, die Datei sollte trotzdem stimmen).
-4. Starten:
+4. Starten. Das App-Image baut GitHub Actions bei jedem Push auf `main` (`ghcr.io/smb-org/twitchpinger:latest`, Tags auch als `:sha-…` und `:x.y.z`):
    ```sh
-   docker compose up -d --build
+   docker compose pull && docker compose up -d
    ```
+   Wer selbst bauen will: `docker compose up -d --build`.
 5. Mit dem Twitch-Account anmelden, dessen User-ID in `ADMIN_TWITCH_USER_ID` steht – dieser Account wird Admin. Danach Einladungslinks erzeugen und an weitere Nutzer verteilen.
 
 Der App-Port ist nur an `127.0.0.1:12080` gebunden; der Zugriff von außen läuft ausschließlich über den Tunnel. Daten (SQLite, Backups) liegen im Volume `app-data`. Backups lassen sich zusätzlich nach Cloudflare R2 hochladen.

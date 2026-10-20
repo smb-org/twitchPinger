@@ -1,6 +1,8 @@
 name: twitch-pinger
 services:
   app:
+    # Prebuilt by GitHub Actions; `docker compose build` builds locally instead.
+    image: ghcr.io/smb-org/twitchpinger:latest
     build: .
     env_file: .env
     volumes:
