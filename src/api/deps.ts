@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { ChatMessage, ReaderHealth, TargetKind } from '../types.ts';
 import type { Repo } from '../db/repo.ts';
 import type { Twitch } from './twitch.ts';
+import type { DiscordOAuth } from './discord.ts';
 
 /** The subset of the config the API reads. loadConfig() returns a superset. */
 export interface ApiConfig {
@@ -9,6 +10,7 @@ export interface ApiConfig {
   sessionSecret: string;
   adminTwitchUserId: string;
   ntfyBaseUrl: string;
+  discordAvailable: boolean;
   /** Local dev/tests over plain http: cookies without Secure. */
   insecureCookies: boolean;
   limits: {
@@ -26,7 +28,7 @@ export type RegexResult = { ok: true } | { ok: false; error: string };
 
 export interface DelivererPort {
   /** Sends a test notification to the target (looked up by the deliverer or passed in full). */
-  sendTest(target: { id: string; kind: TargetKind; url: string; token: string | null; name: string }): Promise<{ ok: boolean; error?: string }>;
+  sendTest(target: { id: string; ownerId: string; kind: TargetKind; url: string; token: string | null; name: string }): Promise<{ ok: boolean; error?: string; errorCode?: number }>;
 }
 
 export interface ApiDeps {
@@ -34,6 +36,7 @@ export interface ApiDeps {
   db: DatabaseSync;
   repo: Repo;
   twitch: Twitch;
+  discord: DiscordOAuth;
   reader: ReaderPort;
   deliverer: DelivererPort;
   validateRegex(pattern: string): RegexResult;

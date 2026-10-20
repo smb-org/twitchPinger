@@ -7,11 +7,13 @@ import type { Target } from '../types.ts';
 
 const target = (o: Partial<Target> = {}): Target => ({ id: 't1', ownerId: 'u', kind: 'ntfy', name: 'n', url: 'https://ntfy.example.org/mn-x', token: null, failCount: 0, status: 'ok', ...o });
 
-function setup(statuses: (number | Error | { status: number; retryAfter?: string })[] = [], options: { getTarget?: (id: string) => Target | undefined; sleep?: (ms: number) => Promise<void> } = {}) {
+function setup(statuses: (number | Error | { status: number; retryAfter?: string })[] = [], options: { getTarget?: (id: string) => Target | undefined; sleep?: (ms: number) => Promise<void>; discordLink?: { discordUserId: string; channelId: string | null } | undefined; discordStatuses?: { status: number; body?: string; retryAfter?: string }[]; discordAvailable?: boolean } = {}) {
   let t = 0;
   const timers: { fn: () => void; at: number; id: number }[] = [];
   let nid = 0;
   const posts: { url: string; headers: Record<string, string>; body: string }[] = [];
+  const discordPosts: { url: string; headers: Record<string, string>; body: string }[] = [];
+  const cachedChannels: { userId: string; channelId: string }[] = [];
   const results: DeliveryResult[] = [];
   const waits: number[] = [];
   const d = createDeliverer({
@@ -20,6 +22,15 @@ function setup(statuses: (number | Error | { status: number; retryAfter?: string
     clearTimer: (h) => { const i = timers.findIndex((x) => x.id === h); if (i >= 0) timers.splice(i, 1); },
     sleep: async (ms) => { waits.push(ms); await options.sleep?.(ms); },
     getTarget: options.getTarget,
+    discordBotToken: 'bot-secret',
+    discordAvailable: options.discordAvailable,
+    getDiscordLink: () => options.discordLink,
+    cacheDiscordChannel: (userId, channelId) => { cachedChannels.push({ userId, channelId }); if (options.discordLink) options.discordLink.channelId = channelId; },
+    discordPost: async (url, init) => {
+      discordPosts.push({ url, headers: init.headers, body: init.body });
+      const r = options.discordStatuses?.shift() ?? { status: 200, body: url.endsWith('/users/@me/channels') ? '{"id":"dm-1"}' : '{}' };
+      return { status: r.status, body: r.body ?? '', ...(r.retryAfter ? { retryAfter: r.retryAfter } : {}) };
+    },
     post: async (url, init) => {
       posts.push({ url, headers: init.headers, body: init.body });
       const s = statuses.shift() ?? 200;
@@ -32,7 +43,7 @@ function setup(statuses: (number | Error | { status: number; retryAfter?: string
     t += ms;
     for (const x of timers.filter((x) => x.at <= t).sort((a, b) => a.at - b.at)) { timers.splice(timers.indexOf(x), 1); x.fn(); }
   };
-  return { d, posts, results, waits, advance };
+  return { d, posts, discordPosts, cachedChannels, results, waits, advance };
 }
 
 test('window semantics', async () => {
@@ -175,6 +186,77 @@ test('Discord batches split before the 2000-character limit and attribute every 
   const delivered = s.results.flatMap((r) => r.hits);
   assert.equal(delivered.length, hits.length);
   assert.ok(s.results.every((r) => r.ok));
+});
+
+test('Discord DM opens and caches a user channel, then sends with no parsed mentions', async () => {
+  const s = setup([], { discordLink: { discordUserId: 'discord-user', channelId: null } });
+  const t = target({ id: 'dm-target', ownerId: 'user-1', kind: 'discord_dm', url: '' });
+  s.d.deliver(hit(), [t]);
+  await s.d.flushAll();
+  assert.equal(s.discordPosts.length, 2);
+  assert.equal(s.discordPosts[0]!.url, 'https://discord.com/api/v10/users/@me/channels');
+  assert.deepEqual(JSON.parse(s.discordPosts[0]!.body), { recipient_id: 'discord-user' });
+  assert.equal(s.discordPosts[1]!.url, 'https://discord.com/api/v10/channels/dm-1/messages');
+  assert.equal(s.discordPosts[1]!.headers.Authorization, 'Bot bot-secret');
+  assert.deepEqual(JSON.parse(s.discordPosts[1]!.body).allowed_mentions, { parse: [] });
+  assert.deepEqual(s.cachedChannels, [{ userId: 'user-1', channelId: 'dm-1' }]);
+  assert.equal(s.results[0]!.ok, true);
+});
+
+test('Discord DM maps error 50007 to the German hint and returns it for a test ping', async () => {
+  const blocked = { status: 403, body: '{"code":50007,"message":"Cannot send messages to this user"}' };
+  const s = setup([], { discordLink: { discordUserId: 'discord-user', channelId: 'dm-1' }, discordStatuses: [blocked] });
+  const t = target({ id: 'dm-target', ownerId: 'user-1', kind: 'discord_dm', url: '' });
+  const r = await s.d.sendTest(t);
+  assert.deepEqual(r, { ok: false, error: 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.', errorCode: 50007 });
+
+  const second = setup([], { discordLink: { discordUserId: 'discord-user', channelId: 'dm-1' }, discordStatuses: [blocked] });
+  second.d.deliver(hit(), [t]);
+  await second.d.flushAll();
+  assert.equal(second.results[0]!.error, 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.');
+  assert.equal(second.results[0]!.errorCode, 50007);
+});
+
+test('Discord DM retries 429 once using the response retry_after value', async () => {
+  const s = setup([], { discordLink: { discordUserId: 'discord-user', channelId: 'dm-1' }, discordStatuses: [
+    { status: 429, body: '{"retry_after":2.5,"global":false}' }, { status: 200, body: '{}' },
+  ] });
+  const t = target({ id: 'dm-target', ownerId: 'user-1', kind: 'discord_dm', url: '' });
+  s.d.deliver(hit(), [t]);
+  await s.d.flushAll();
+  assert.deepEqual(s.waits, [2500]);
+  assert.equal(s.discordPosts.length, 2);
+  assert.equal(s.results[0]!.ok, true);
+});
+
+test('Discord DM batches split at 2000 characters and preserve every hit', async () => {
+  const s = setup([], { discordLink: { discordUserId: 'discord-user', channelId: 'dm-1' } });
+  const t = target({ id: 'dm-target', ownerId: 'user-1', kind: 'discord_dm', url: '' });
+  const hits = Array.from({ length: 50 }, (_, i) => hit({ ruleName: `${String(i).padStart(2, '0')}-${'r'.repeat(50)}` }));
+  for (const h of hits) s.d.deliver(h, [t]);
+  s.advance(10_000);
+  await s.d.flushAll();
+  const contents = s.discordPosts.filter((p) => p.url.endsWith('/messages')).map((p) => JSON.parse(p.body).content as string);
+  assert.ok(contents.length > 1);
+  assert.ok(contents.every((content) => content.length <= 2000));
+  assert.ok(hits.every((h) => contents.some((content) => content.includes(h.ruleName))));
+  assert.equal(s.results.flatMap((r) => r.hits).length, hits.length);
+});
+
+test('Discord DM target without a linked account fails without making an API request', async () => {
+  const s = setup([], { discordLink: undefined });
+  const t = target({ kind: 'discord_dm', url: '' });
+  const r = await s.d.sendTest(t);
+  assert.equal(r.ok, false);
+  assert.equal(s.discordPosts.length, 0);
+});
+
+test('Discord DM refuses delivery when OAuth config is incomplete even if the bot token is present', async () => {
+  const s = setup([], { discordLink: { discordUserId: 'discord-user', channelId: 'dm-1' }, discordAvailable: false });
+  const t = target({ kind: 'discord_dm', url: '' });
+  const r = await s.d.sendTest(t);
+  assert.deepEqual(r, { ok: false, error: 'Discord-Direktnachrichten sind nicht eingerichtet.' });
+  assert.equal(s.discordPosts.length, 0);
 });
 
 test('invalid url fails fast; token header; test message', async () => {

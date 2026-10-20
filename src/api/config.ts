@@ -8,6 +8,11 @@ export interface Config extends ApiConfig {
   clientSecret: string;
   authBase: string;
   helixBase: string;
+  discordClientId: string;
+  discordClientSecret: string;
+  discordBotToken: string;
+  /** OAuth host override for local integration tests; production defaults to Discord. */
+  discordBaseUrl: string;
   adminNtfyUrl: string;
   adminNtfyToken: string;
   /** Publisher token for the own ntfy server; not stored per target. */
@@ -43,6 +48,11 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     sessionSecret: str('SESSION_SECRET'),
     clientId: str('TWITCH_CLIENT_ID'),
     clientSecret: str('TWITCH_CLIENT_SECRET'),
+    discordAvailable: Boolean(env.DISCORD_CLIENT_ID && env.DISCORD_CLIENT_SECRET && env.DISCORD_BOT_TOKEN),
+    discordClientId: str('DISCORD_CLIENT_ID'),
+    discordClientSecret: str('DISCORD_CLIENT_SECRET'),
+    discordBotToken: str('DISCORD_BOT_TOKEN'),
+    discordBaseUrl: (production ? 'https://discord.com' : str('DISCORD_BASE_URL', 'https://discord.com')).replace(/\/+$/, ''),
     authBase: str('TWITCH_AUTH_BASE', 'https://id.twitch.tv').replace(/\/+$/, ''),
     helixBase: str('TWITCH_HELIX_BASE', 'https://api.twitch.tv/helix').replace(/\/+$/, ''),
     adminTwitchUserId: str('ADMIN_TWITCH_USER_ID'),

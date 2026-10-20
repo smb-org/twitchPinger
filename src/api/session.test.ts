@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hashSessionId, newSessionId, signState, verifyState } from './session.ts';
+import { hashSessionId, newSessionId, signDiscordState, signState, verifyDiscordState, verifyState } from './session.ts';
 import { openDb } from '../db/db.ts';
 import { createRepo } from '../db/repo.ts';
 import { loadConfig } from './config.ts';
@@ -31,11 +31,23 @@ test('state cookie: valid, tampered, wrong state, wrong secret, expired', () => 
   assert.equal(verifyState('s'.repeat(32), undefined, state, 2000), null);
 });
 
+test('Discord state is signed, short-lived, and bound to the initiating session and return path', () => {
+  const { state, cookie } = signDiscordState('s'.repeat(32), 'session-hash', '/onboarding', 1000);
+  assert.deepEqual(verifyDiscordState('s'.repeat(32), cookie, state, 'session-hash', 2000), { state, returnTo: '/onboarding' });
+  assert.equal(verifyDiscordState('s'.repeat(32), cookie, state, 'other-session', 2000), null);
+  assert.equal(verifyDiscordState('s'.repeat(32), cookie, `${state}x`, 'session-hash', 2000), null);
+  assert.equal(verifyDiscordState('s'.repeat(32), cookie, state, 'session-hash', 1_000 + 11 * 60_000), null);
+  assert.equal(verifyDiscordState('x'.repeat(32), cookie, state, 'session-hash', 2000), null);
+});
+
 test('loadConfig: defaults in dev, required vars in production', () => {
   const c = loadConfig({ PUBLIC_URL: 'https://m.example/' });
   assert.equal(c.publicUrl, 'https://m.example');
   assert.equal(c.limits.MAX_ACCOUNTS, 100);
   assert.equal(c.authBase, 'https://id.twitch.tv');
+  assert.equal(c.discordAvailable, false);
+  assert.equal(loadConfig({ DISCORD_CLIENT_ID: 'id', DISCORD_CLIENT_SECRET: 'secret', DISCORD_BOT_TOKEN: 'token' }).discordAvailable, true);
+  assert.equal(loadConfig({ DISCORD_CLIENT_ID: 'id', DISCORD_CLIENT_SECRET: 'secret' }).discordAvailable, false);
   assert.equal(loadConfig({ MAX_ACCOUNTS: '3' }).limits.MAX_ACCOUNTS, 3);
   assert.throws(() => loadConfig({ NODE_ENV: 'production' }), /PUBLIC_URL/);
 });

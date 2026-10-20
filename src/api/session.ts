@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 
 export const SESSION_COOKIE = 'mn_session';
 export const STATE_COOKIE = 'mn_state';
+export const DISCORD_STATE_COOKIE = 'mn_discord_state';
 export const SESSION_TTL_MS = 30 * 86_400_000;
 const STATE_TTL_MS = 10 * 60_000;
 
@@ -18,6 +19,30 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 export interface OAuthState { state: string; invite: string | null }
+
+export interface DiscordOAuthState { state: string; returnTo: '/onboarding' | '/targets' }
+
+/** Signed state for linking Discord to an already authenticated app session. */
+export function signDiscordState(secret: string, sessionHash: string, returnTo: DiscordOAuthState['returnTo'], now: number): { state: string; cookie: string } {
+  const state = randomBytes(24).toString('base64url');
+  const body = Buffer.from(JSON.stringify({ s: state, u: sessionHash, r: returnTo, e: now + STATE_TTL_MS })).toString('base64url');
+  return { state, cookie: `${body}.${mac(secret, body)}` };
+}
+
+/** Verifies signature, expiry, callback state, and the session that started linking. */
+export function verifyDiscordState(secret: string, cookie: string | undefined, stateParam: string | undefined, sessionHash: string, now: number): DiscordOAuthState | null {
+  if (!cookie || !stateParam) return null;
+  const [body, sig, extra] = cookie.split('.');
+  if (!body || !sig || extra !== undefined || !safeEqual(sig, mac(secret, body))) return null;
+  try {
+    const p = JSON.parse(Buffer.from(body, 'base64url').toString());
+    if (typeof p.s !== 'string' || typeof p.u !== 'string' || p.e <= now || !safeEqual(p.s, stateParam) || !safeEqual(p.u, sessionHash)) return null;
+    if (p.r !== '/onboarding' && p.r !== '/targets') return null;
+    return { state: p.s, returnTo: p.r };
+  } catch {
+    return null;
+  }
+}
 
 /** Signed, short-lived OAuth state cookie value: base64url(json).hmac */
 export function signState(secret: string, invite: string | null, now: number): { state: string; cookie: string } {

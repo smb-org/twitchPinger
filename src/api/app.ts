@@ -5,7 +5,7 @@ import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Badge, MatchMode, Rule, Target, TargetKind } from '../types.ts';
 import type { RuleInput, UserRow } from '../db/repo.ts';
 import type { ApiDeps } from './deps.ts';
-import { SESSION_COOKIE, SESSION_TTL_MS, STATE_COOKIE, hashSessionId, newSessionId, randomId, sha256, signState, verifyState } from './session.ts';
+import { DISCORD_STATE_COOKIE, SESSION_COOKIE, SESSION_TTL_MS, STATE_COOKIE, hashSessionId, newSessionId, randomId, sha256, signDiscordState, signState, verifyDiscordState, verifyState } from './session.ts';
 
 type Env = { Variables: { user: UserRow; sessionHash: string } };
 type Ctx = Context<Env>;
@@ -26,7 +26,7 @@ class ApiError extends Error {
 const bad = (field: string, message: string) => new ApiError(400, 'validation', message, field);
 
 export function createApi(deps: ApiDeps) {
-  const { config, repo, twitch, reader, deliverer } = deps;
+  const { config, repo, twitch, discord, reader, deliverer } = deps;
   const now = () => (deps.now ?? Date.now)();
   const origin = new URL(config.publicUrl).origin;
   const redirectUri = `${config.publicUrl}/api/auth/callback`;
@@ -142,6 +142,48 @@ export function createApi(deps: ApiDeps) {
     return c.redirect(isNew ? '/onboarding' : '/');
   });
 
+  // ---- Discord account linking ----
+  const discordAvailable = config.discordAvailable && discord.enabled;
+  const requireDiscord = () => {
+    if (!discordAvailable) throw new ApiError(404, 'discord_unavailable', 'Discord-Direktnachrichten sind nicht eingerichtet.');
+  };
+  const discordRedirectUri = `${config.publicUrl}/api/discord/callback`;
+
+  app.get('/discord/link', (c) => {
+    requireDiscord();
+    const returnTo = c.req.query('returnTo') === '/onboarding' ? '/onboarding' : '/targets';
+    const { state, cookie } = signDiscordState(config.sessionSecret, c.get('sessionHash'), returnTo, now());
+    setCookie(c, DISCORD_STATE_COOKIE, cookie, { ...cookieBase, path: '/api/discord', maxAge: 600 });
+    return c.redirect(discord.authorizeUrl(state, discordRedirectUri));
+  });
+
+  app.get('/discord/callback', async (c) => {
+    requireDiscord();
+    const stateCookie = getCookie(c, DISCORD_STATE_COOKIE);
+    const st = verifyDiscordState(config.sessionSecret, stateCookie, c.req.query('state'), c.get('sessionHash'), now());
+    deleteCookie(c, DISCORD_STATE_COOKIE, { path: '/api/discord' });
+    const redirectBase = (returnTo: '/onboarding' | '/targets') => returnTo === '/onboarding' ? '/onboarding?step=2&target=discord_dm' : '/targets?target=discord_dm';
+    const fail = (returnTo: '/onboarding' | '/targets' = st?.returnTo ?? '/targets') => c.redirect(`${redirectBase(returnTo)}&error=discord_oauth_failed`);
+    const code = c.req.query('code');
+    if (!st || !code || c.req.query('error')) return fail();
+
+    try {
+      const token = await discord.exchangeCode(code, discordRedirectUri);
+      const user = await discord.getUserByToken(token);
+      // The OAuth token is intentionally short-lived in memory and never persisted.
+      repo.linkDiscordUser(me(c).id, user.id, user.username, now());
+    } catch {
+      return fail(st.returnTo);
+    }
+    return c.redirect(`${redirectBase(st.returnTo)}&discord=linked`);
+  });
+
+  app.delete('/discord/link', (c) => {
+    requireDiscord();
+    repo.unlinkDiscordUser(me(c).id);
+    return c.json({ ok: true });
+  });
+
   app.post('/auth/logout', (c) => {
     const id = getCookie(c, SESSION_COOKIE);
     if (id) repo.deleteSession(hashSessionId(id));
@@ -159,6 +201,7 @@ export function createApi(deps: ApiDeps) {
     return c.json({
       user: userDto(u), isAdmin: u.isAdmin, limits: config.limits, counts,
       onboarding: { hasChannel: counts.channels > 0, hasTarget: counts.targets > 0, hasRule: counts.rules > 0 },
+      discordDm: { available: discordAvailable, username: discordAvailable ? repo.getDiscordLink(u.id)?.username ?? null : null },
       followSuggestions: s?.follows ?? [],
     });
   });
@@ -294,7 +337,9 @@ export function createApi(deps: ApiDeps) {
   // ---- targets ----
   // Never expose tokens; Discord webhook URLs are secrets themselves, so only a hint is returned.
   const targetDto = (t: Target) => ({
-    id: t.id, kind: t.kind, name: t.name, failCount: t.failCount, status: t.status,
+    id: t.id, kind: t.kind, name: t.name, failCount: t.failCount,
+    status: t.kind === 'discord_dm' && !discordAvailable ? 'unavailable' : t.kind === 'discord_dm' && !repo.getDiscordLink(t.ownerId) ? 'unlinked' : t.status,
+    failureHint: t.kind === 'discord_dm' && !discordAvailable ? 'Discord-Direktnachrichten sind nicht eingerichtet.' : t.kind === 'discord_dm' && !repo.getDiscordLink(t.ownerId) ? 'Discord nicht verbunden. Verbinde dein Konto erneut.' : t.lastError ?? null,
     url: t.kind === 'discord' ? `${new URL(t.url).origin}/api/webhooks/…` : t.url,
   });
   const topic = () => Array.from({ length: 24 }, () => B32[randomInt(32)]).join('');
@@ -314,10 +359,15 @@ export function createApi(deps: ApiDeps) {
   app.post('/targets', async (c) => {
     const u = me(c);
     const b = await body(c);
-    if (b.kind !== 'discord' && b.kind !== 'ntfy') throw bad('kind', 'Ungültige Zielart.');
+    if (b.kind !== 'discord' && b.kind !== 'discord_dm' && b.kind !== 'ntfy') throw bad('kind', 'Ungültige Zielart.');
+    if (b.kind === 'discord_dm') {
+      requireDiscord();
+      if (!repo.getDiscordLink(u.id)) throw new ApiError(409, 'discord_not_linked', 'Verbinde zuerst dein Discord-Konto.');
+    }
     const name = parseName(b.name);
     let url = typeof b.url === 'string' ? b.url.trim() : '';
-    if (!url && b.kind === 'ntfy') url = `${config.ntfyBaseUrl}/mn-${topic()}`;
+    if (b.kind === 'discord_dm') url = '';
+    else if (!url && b.kind === 'ntfy') url = `${config.ntfyBaseUrl}/mn-${topic()}`;
     else if (!url) throw bad('url', 'Die URL fehlt.');
     else await checkUrl(b.kind, url);
     const t = { id: randomId(), ownerId: u.id, kind: b.kind as TargetKind, name, url, token: null };
@@ -330,8 +380,8 @@ export function createApi(deps: ApiDeps) {
     if (!old || old.ownerId !== me(c).id) throw notFound('Ziel');
     const b = await body(c);
     const name = parseName(b.name ?? old.name);
-    const url = typeof b.url === 'string' && b.url.trim() ? b.url.trim() : old.url;
-    if (url !== old.url) await checkUrl(old.kind, url);
+    const url = old.kind === 'discord_dm' ? '' : typeof b.url === 'string' && b.url.trim() ? b.url.trim() : old.url;
+    if (old.kind !== 'discord_dm' && url !== old.url) await checkUrl(old.kind, url);
     repo.saveTarget({ id: old.id, ownerId: old.ownerId, kind: old.kind, name, url, token: null });
     return c.json({ target: targetDto(repo.getTarget(old.id)!) });
   });
@@ -345,7 +395,8 @@ export function createApi(deps: ApiDeps) {
   app.post('/targets/:id/test', async (c) => {
     const t = repo.getTarget(c.req.param('id'));
     if (!t || t.ownerId !== me(c).id) throw notFound('Ziel');
-    const r = await deliverer.sendTest(t).catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : 'Fehler' }));
+    const r: { ok: boolean; error?: string; errorCode?: number } = await deliverer.sendTest(t).catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : 'Fehler' }));
+    repo.recordDeliveryResult(t.id, r.ok, r.error, r.errorCode === 50007 || r.errorCode === 50278);
     return c.json(r);
   });
 

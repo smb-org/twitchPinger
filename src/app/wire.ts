@@ -4,6 +4,7 @@ import type { ChatMessage, Hit, Target } from '../types.ts';
 import type { Repo } from '../db/repo.ts';
 import type { Config } from '../api/config.ts';
 import type { Twitch } from '../api/twitch.ts';
+import { createDiscord } from '../api/discord.ts';
 import { createApi } from '../api/app.ts';
 import { createReader } from '../reader/reader.ts';
 import type { Reader } from '../reader/reader.ts';
@@ -40,6 +41,7 @@ export interface ServiceDeps {
   /** Defaults to the real twurple reader (READER=twurple) or the fake reader (READER=fake). */
   readerFactory?: (opts: { onMessage: (m: ChatMessage) => void }) => Reader;
   post?: typeof safePost;
+  discordPost?: typeof trustedPost;
   alertPost?: typeof trustedPost;
   r2?: { enabled: boolean; uploadAndPrune(file: string): Promise<void> };
   log?: (line: string) => void;
@@ -70,13 +72,21 @@ export function createService(deps: ServiceDeps) {
     setTimer: (fn, ms) => timers.set(fn, ms),
     clearTimer: (h) => timers.clear(h),
     post: deps.post,
+    discordPost: deps.discordPost,
+    discordBotToken: config.discordBotToken,
+    discordAvailable: config.discordAvailable,
+    getDiscordLink: (userId) => {
+      const l = repo.getDiscordLink(userId);
+      return l ? { discordUserId: l.discordUserId, channelId: l.channelId } : undefined;
+    },
+    cacheDiscordChannel: repo.cacheDiscordChannel,
     log,
     getTarget: (id) => {
       const t = repo.getTarget(id);
       return t ? withToken(t) : undefined;
     },
     onResult(r) {
-      repo.recordDeliveryResult(r.targetId, r.ok);
+      repo.recordDeliveryResult(r.targetId, r.ok, r.error, r.errorCode === 50007 || r.errorCode === 50278);
       for (const h of r.hits) {
         const id = hitIds.get(h);
         if (id !== undefined) repo.appendHitResult(id, r.targetId, r.ok, r.sentAt);
@@ -178,8 +188,9 @@ export function createService(deps: ServiceDeps) {
     log(`metrics messages=${s.messages} avgMatchMicros=${s.avgMatchMicros.toFixed(1)} maxMatchMicros=${s.maxMatchMicros.toFixed(1)} joined=${h.joined}/${h.desired}`);
   }
 
+  const discord = createDiscord({ clientId: config.discordClientId, clientSecret: config.discordClientSecret, botToken: config.discordBotToken, baseUrl: config.discordBaseUrl });
   const api = createApi({
-    config, db: deps.db, repo, twitch, now,
+    config, db: deps.db, repo, twitch, discord, now,
     reader,
     deliverer: { sendTest: (t) => deliverer.sendTest(withToken(t) as Target) },
     validateRegex,

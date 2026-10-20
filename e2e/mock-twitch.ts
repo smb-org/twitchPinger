@@ -24,6 +24,19 @@ createServer(async (req, res) => {
     res.writeHead(302, { location: back.toString() });
     return res.end();
   }
+  if (u.pathname === '/discord/oauth2/authorize') {
+    const back = new URL(u.searchParams.get('redirect_uri')!);
+    back.searchParams.set('code', 'discord-code');
+    back.searchParams.set('state', u.searchParams.get('state')!);
+    res.writeHead(302, { location: back.toString() });
+    return res.end();
+  }
+  if (u.pathname === '/discord/api/v10/oauth2/token') return send(200, { access_token: 'discord-access' });
+  if (u.pathname === '/discord/api/v10/users/@me') {
+    return req.headers.authorization === 'Bearer discord-access'
+      ? send(200, { id: '9001', username: 'e2e_discord' })
+      : send(401, {});
+  }
   if (u.pathname === '/oauth2/token') {
     const p = new URLSearchParams(raw);
     const code = p.get('code');

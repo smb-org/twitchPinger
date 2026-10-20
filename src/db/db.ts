@@ -54,6 +54,16 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX hit_log_rule ON hit_log(rule_id, fired_at);
   `,
+  `
+  CREATE TABLE discord_links (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    discord_user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    channel_id TEXT,
+    linked_at INTEGER NOT NULL
+  );
+  ALTER TABLE targets ADD COLUMN last_error TEXT;
+  `,
 ];
 
 export function openDb(path: string): DatabaseSync {

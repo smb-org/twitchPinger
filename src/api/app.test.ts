@@ -6,6 +6,7 @@ import { LIMITS_DEFAULTS } from '../types.ts';
 import type { ChatMessage, ReaderHealth } from '../types.ts';
 import { createApi } from './app.ts';
 import { createTwitch } from './twitch.ts';
+import { createDiscord } from './discord.ts';
 import type { ApiConfig, ApiDeps } from './deps.ts';
 
 const ORIGIN = 'https://m.example';
@@ -37,7 +38,23 @@ function fakeFetch(): typeof fetch {
   }) as typeof fetch;
 }
 
-function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string } = {}, overrides: Partial<ApiDeps> = {}) {
+function fakeDiscordFetch(): typeof fetch {
+  return (async (input: any, init?: any) => {
+    const url = new URL(String(input));
+    const json = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
+    if (url.pathname === '/discord/api/v10/oauth2/token') {
+      const p = new URLSearchParams(String(init.body));
+      return json({ access_token: `discord-token-${p.get('code')}` });
+    }
+    if (url.pathname === '/discord/api/v10/users/@me') {
+      const token = String(init?.headers?.Authorization ?? '').replace('Bearer discord-token-', '');
+      return json({ id: `discord-${token}`, username: `user_${token}` });
+    }
+    return json({}, 404);
+  }) as typeof fetch;
+}
+
+function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string; discord?: boolean } = {}, overrides: Partial<ApiDeps> = {}) {
   const db = openDb(':memory:');
   const repo = createRepo(db);
   let t = 1_000_000;
@@ -47,12 +64,13 @@ function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string }
   const messages: ChatMessage[] = [{ channel: 'marbles_one', channelId: 'ch-marbles_one', userId: 'x9', login: 'viewer', displayName: 'Viewer', text: '!play', badges: ['vip'], sentAt: 5, receivedAt: 6 }];
   const tests: any[] = [];
   const config: ApiConfig = {
-    publicUrl: ORIGIN, sessionSecret: 's'.repeat(32), adminTwitchUserId: opts.admin ?? '1', ntfyBaseUrl: 'https://ntfy.example', insecureCookies: true,
+    publicUrl: ORIGIN, sessionSecret: 's'.repeat(32), adminTwitchUserId: opts.admin ?? '1', ntfyBaseUrl: 'https://ntfy.example', insecureCookies: true, discordAvailable: opts.discord ?? false,
     limits: { ...LIMITS_DEFAULTS, ...over },
   };
   const deps: ApiDeps = {
     config, db, repo,
     twitch: createTwitch({ clientId: 'cid', clientSecret: 'sec', authBase: 'https://auth.test', helixBase: 'https://auth.test/helix', fetch: fakeFetch() }),
+    discord: createDiscord({ clientId: opts.discord ? 'discord-client' : '', clientSecret: opts.discord ? 'discord-secret' : '', botToken: opts.discord ? 'discord-bot-token' : '', baseUrl: 'https://discord.test/discord', fetch: fakeDiscordFetch() }),
     reader: { health: () => readerHealth, recent: (l) => (l === 'marbles_one' ? messages : []) },
     deliverer: { sendTest: async (tg) => { tests.push(tg); return { ok: true }; } },
     validateRegex: (p) => { try { new RegExp(p); return /\(\?<?[=!]/.test(p) ? { ok: false, error: 'lookaround' } : { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } },
@@ -149,6 +167,73 @@ test('callback: admin bootstrap, session cookie flags, onboarding redirect', asy
   // session id is stored hashed only
   const stored = (a.deps.db.prepare('SELECT id_hash FROM sessions').all() as any[]).map((r) => r.id_hash);
   assert.ok(stored.every((h) => h !== l.cookie.split('=')[1]));
+});
+
+test('Discord feature is hidden in /me and direct target creation is rejected without all credentials', async () => {
+  const a = setup();
+  const { cookie } = await a.login('admin');
+  const me = await j(await a.req('/me', { cookie }));
+  assert.deepEqual(me.discordDm, { available: false, username: null });
+  assert.equal((await a.req('/discord/link', { cookie })).status, 404);
+  const create = await a.req('/targets', { method: 'POST', cookie, body: { kind: 'discord_dm', name: 'Discord' } });
+  assert.equal(create.status, 404);
+});
+
+test('existing Discord DM target shows unavailable when any Discord credential is missing', async () => {
+  const a = setup();
+  const { cookie } = await a.login('admin');
+  a.repo.linkDiscordUser('1', 'discord-user', 'discord_user');
+  a.repo.saveTarget({ id: 'legacy-dm', ownerId: '1', kind: 'discord_dm', name: 'Discord DM', url: '', token: null });
+  const targets = await j(await a.req('/targets', { cookie }));
+  assert.equal(targets.targets[0].status, 'unavailable');
+  assert.equal(targets.targets[0].failureHint, 'Discord-Direktnachrichten sind nicht eingerichtet.');
+});
+
+test('Discord callback stores the linked identity, creates a URL-free target, and unlink makes it unusable', async () => {
+  const a = setup({}, { discord: true });
+  const { cookie } = await a.login('admin');
+  const start = await a.app.request('/api/discord/link?returnTo=%2Ftargets', { headers: { cookie } });
+  assert.equal(start.status, 302);
+  const authorize = new URL(start.headers.get('location')!);
+  assert.equal(authorize.searchParams.get('scope'), 'identify applications.commands');
+  assert.equal(authorize.searchParams.get('integration_type'), '1');
+  assert.equal(authorize.searchParams.get('redirect_uri'), `${ORIGIN}/api/discord/callback`);
+  const stateCookie = start.headers.get('set-cookie')!.split(';')[0]!;
+  const state = authorize.searchParams.get('state')!;
+  const callback = await a.app.request(`/api/discord/callback?code=alice&state=${encodeURIComponent(state)}`, { headers: { cookie: `${cookie}; ${stateCookie}` } });
+  assert.equal(callback.headers.get('location'), '/targets?target=discord_dm&discord=linked');
+  assert.deepEqual(a.repo.getDiscordLink('1'), { userId: '1', discordUserId: 'discord-alice', username: 'user_alice', channelId: null });
+  const stored = a.deps.db.prepare('SELECT discord_user_id, username, channel_id FROM discord_links').get() as any;
+  assert.deepEqual({ ...stored }, { discord_user_id: 'discord-alice', username: 'user_alice', channel_id: null });
+  const target = await a.req('/targets', { method: 'POST', cookie, body: { kind: 'discord_dm', name: 'Mein Discord' } });
+  assert.equal(target.status, 201);
+  const targetBody = await j(target);
+  assert.equal(targetBody.target.url, '');
+  a.deps.deliverer.sendTest = async () => ({ ok: false, error: 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.', errorCode: 50007 });
+  const ping = await a.req(`/targets/${targetBody.target.id}/test`, { method: 'POST', cookie });
+  assert.equal((await j(ping)).error, 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.');
+  let targets = await j(await a.req('/targets', { cookie }));
+  assert.equal(targets.targets[0].status, 'failing');
+  assert.equal(targets.targets[0].failureHint, 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.');
+  assert.equal((await a.req('/discord/link', { method: 'DELETE', cookie, origin: 'https://evil.example' })).status, 403);
+  assert.equal((await a.req('/discord/link', { method: 'DELETE', cookie })).status, 200);
+  const me = await j(await a.req('/me', { cookie }));
+  assert.deepEqual(me.discordDm, { available: true, username: null });
+  targets = await j(await a.req('/targets', { cookie }));
+  assert.equal(targets.targets[0].status, 'unlinked');
+});
+
+test('Discord callback rejects a valid state when it returns to a different app session', async () => {
+  const a = setup({}, { discord: true });
+  const { cookie: admin } = await a.login('admin');
+  const alice = await a.join('alice', admin);
+  const start = await a.app.request('/api/discord/link', { headers: { cookie: alice.cookie } });
+  const state = new URL(start.headers.get('location')!).searchParams.get('state')!;
+  const stateCookie = start.headers.get('set-cookie')!.split(';')[0]!;
+  const callback = await a.app.request(`/api/discord/callback?code=alice&state=${encodeURIComponent(state)}`, { headers: { cookie: `${admin}; ${stateCookie}` } });
+  assert.equal(callback.headers.get('location'), '/targets?target=discord_dm&error=discord_oauth_failed');
+  assert.equal(a.repo.getDiscordLink('1'), undefined);
+  assert.equal(a.repo.getDiscordLink('2'), undefined);
 });
 
 test('Secure flag set when cookies are not insecure', async () => {

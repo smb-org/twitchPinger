@@ -13,9 +13,9 @@ export interface Burst { threshold: number; windowSec: number; countBy: 'users' 
 /** A user-defined notification rule. */
 export interface Rule { id: string; ownerId: string; name: string; enabled: boolean; matcher: Matcher; sender: SenderFilter; burst: Burst; cooldownSec: number; channelIds: string[]; targetIds: string[]; updatedAt: number; }
 /** Delivery channel type. */
-export type TargetKind = 'discord' | 'ntfy';
+export type TargetKind = 'discord' | 'discord_dm' | 'ntfy';
 /** A delivery destination owned by a user. */
-export interface Target { id: string; ownerId: string; kind: TargetKind; name: string; url: string; token: string | null; failCount: number; status: 'ok' | 'failing'; }
+export interface Target { id: string; ownerId: string; kind: TargetKind; name: string; url: string; token: string | null; failCount: number; status: 'ok' | 'failing'; lastError?: string | null; }
 /** A fired rule, ready for delivery. */
 export interface Hit { ruleId: string; ruleName: string; ownerId: string; channelId: string; channel: string; count: number; sample: ChatMessage; firedAt: number; }
 /** Snapshot of the chat reader connection state. */

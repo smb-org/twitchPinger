@@ -48,6 +48,7 @@ export interface Me {
   limits: Limits;
   counts: { channels: number; rules: number; targets: number; openInvites: number };
   onboarding: { hasChannel: boolean; hasTarget: boolean; hasRule: boolean };
+  discordDm: { available: boolean; username: string | null };
   followSuggestions: Channel[];
 }
 export const meStore = store<Me | null>(null);
@@ -57,7 +58,7 @@ export interface Health { ok: boolean; reader: ReaderHealth }
 export interface Fired { channelId: string; channel: string | null; ts: number; cooldownUntil: number }
 export type OverviewRule = Rule & { lastFired: Fired[]; cooldownUntil: number | null };
 export interface Ping { hitId: number; firedAt: number; ruleId: string; ruleName: string; channelId: string; channel: string | null; count: number; sentTs: number | null; hasTargets: boolean; results: { targetId: string; ok: boolean; ts: number; targetName: string | null }[] }
-export interface TargetDto { id: string; kind: TargetKind; name: string; url: string; failCount: number; status: 'ok' | 'failing' }
+export interface TargetDto { id: string; kind: TargetKind; name: string; url: string; failCount: number; status: 'ok' | 'failing' | 'unlinked' | 'unavailable'; failureHint: string | null }
 export interface InviteDto { id: string; createdAt: number; expiresAt: number; usedAt: number | null; usedBy: string | null; status: 'open' | 'used' | 'revoked' | 'expired' }
 export interface AdminUser { id: string; login: string; displayName: string; isAdmin: boolean; locked: boolean; invitedBy: string | null; createdAt: number; ruleCount: number; channelCount: number }
 export interface PreviewMsg { sentAt: number; userId: string; login: string; displayName: string; text: string; badges: Badge[] }

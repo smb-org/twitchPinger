@@ -4,7 +4,7 @@ import type { Rule, TargetDto } from '../api.ts';
 import { AddChannelForm, Suggestions, useChannels } from '../channels.tsx';
 import { describeRule } from '../../../src/rules/describe.ts';
 import { navigate } from '../router.tsx';
-import { NtfyHelp, TargetForm, TestCell, useTargets } from '../targets.tsx';
+import { NtfyHelp, TargetForm, TargetState, TestCell, useTargets } from '../targets.tsx';
 import { MARBLES } from '../form.ts';
 import { toast, useTitle } from '../ui.tsx';
 
@@ -33,14 +33,15 @@ function Step2() {
     <>
       <p class="lead">Wohin sollen die Pings? Lege ein Ziel an und schick einen Test – schau aufs Handy.</p>
       <div class="slot">
-        {created?.kind === 'ntfy' ? <NtfyHelp url={created.url} /> : <TargetForm count={targets.length} onCreated={(x) => { setCreated(x); t.reload(); }} />}
+        {created?.kind === 'ntfy' ? <NtfyHelp url={created.url} /> : <TargetForm count={targets.length} returnTo="/onboarding" onCreated={(x) => { setCreated(x); t.reload(); }} onLinkChange={t.reload} />}
       </div>
       <ul class="list">
         {targets.map((x) => (
           <li class="row target" key={x.id}>
-            <span class="tname"><b>{x.name}</b> <span class="muted">{x.kind === 'ntfy' ? 'ntfy' : 'Discord'}</span></span>
+            <span class="tname"><b>{x.name}</b> <span class="muted">{x.kind === 'ntfy' ? 'ntfy' : x.kind === 'discord_dm' ? 'Discord-Direktnachricht' : 'Discord-Webhook'}</span></span>
+            <TargetState target={x} />
             <span class="grow" />
-            <TestCell id={x.id} />
+            <TestCell id={x.id} onResult={() => { void t.reload(); }} />
           </li>
         ))}
       </ul>
@@ -81,7 +82,7 @@ function Step3({ done }: { done: () => void }) {
 
 export function Onboarding() {
   useTitle('Einrichtung');
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(() => new URLSearchParams(location.search).get('step') === '2' ? 2 : 1);
   const finish = (ok: boolean) => { if (ok) toast('Überwachung läuft'); navigate('/'); };
   const titles = ['Channels wählen', 'Ziel anlegen', 'Regel aus Vorlage'];
   return (

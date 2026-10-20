@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Rule, Target, TargetKind } from '../types.ts';
 
 export interface UserRow { id: string; login: string; displayName: string; isAdmin: boolean; locked: boolean; invitedBy: string | null; createdAt: number }
+export interface DiscordLinkRow { userId: string; discordUserId: string; username: string; channelId: string | null }
 export interface SessionRow { userId: string; expiresAt: number; follows: FollowSuggestion[] }
 export interface FollowSuggestion { id: string; login: string; displayName: string }
 export interface InviteRow { id: string; codeHash: string; createdBy: string; createdAt: number; expiresAt: number; usedBy: string | null; usedAt: number | null; revoked: boolean }
@@ -21,7 +22,7 @@ const rule = (r: Row): Rule => ({
   matcher: JSON.parse(r.matcher_json), sender: JSON.parse(r.sender_json), burst: JSON.parse(r.burst_json),
   cooldownSec: r.cooldown_sec, channelIds: JSON.parse(r.channel_ids_json), targetIds: JSON.parse(r.target_ids_json), updatedAt: r.updated_at,
 });
-const target = (r: Row): Target => ({ id: r.id, ownerId: r.owner_id, kind: r.kind as TargetKind, name: r.name, url: r.url, token: r.token, failCount: r.fail_count, status: r.status });
+const target = (r: Row): Target => ({ id: r.id, ownerId: r.owner_id, kind: r.kind as TargetKind, name: r.name, url: r.url, token: r.token, failCount: r.fail_count, status: r.status, lastError: r.last_error ?? null });
 
 export function createRepo(db: DatabaseSync) {
   const all = (sql: string, ...p: any[]): Row[] => db.prepare(sql).all(...p) as Row[];
@@ -45,7 +46,8 @@ export function createRepo(db: DatabaseSync) {
   const writeTarget = (t: Pick<Target, 'id' | 'ownerId' | 'kind' | 'name' | 'url' | 'token'>) => {
     run(`INSERT INTO targets (id, owner_id, kind, name, url, token) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
       name = excluded.name, url = excluded.url, token = excluded.token, fail_count = CASE WHEN url = excluded.url THEN fail_count ELSE 0 END,
-      status = CASE WHEN url = excluded.url THEN status ELSE 'ok' END`, t.id, t.ownerId, t.kind, t.name, t.url, t.token);
+      status = CASE WHEN url = excluded.url THEN status ELSE 'ok' END,
+      last_error = CASE WHEN url = excluded.url THEN last_error ELSE NULL END`, t.id, t.ownerId, t.kind, t.name, t.url, t.token);
   };
 
   const repo = {
@@ -57,6 +59,20 @@ export function createRepo(db: DatabaseSync) {
       run('INSERT INTO users (id, login, display_name, is_admin, invited_by, created_at) VALUES (?,?,?,?,?,?)', u.id, u.login, u.displayName, u.isAdmin ? 1 : 0, u.invitedBy, u.now);
     },
     updateUserNames: (id: string, login: string, displayName: string) => { run('UPDATE users SET login = ?, display_name = ? WHERE id = ?', login, displayName, id); },
+    getDiscordLink(userId: string): DiscordLinkRow | undefined {
+      const r = get('SELECT * FROM discord_links WHERE user_id = ?', userId);
+      return r && { userId: r.user_id, discordUserId: r.discord_user_id, username: r.username, channelId: r.channel_id };
+    },
+    linkDiscordUser(userId: string, discordUserId: string, username: string, now = Date.now()) {
+      run(`INSERT INTO discord_links (user_id, discord_user_id, username, linked_at) VALUES (?,?,?,?)
+        ON CONFLICT(user_id) DO UPDATE SET discord_user_id = excluded.discord_user_id, username = excluded.username,
+        channel_id = CASE WHEN discord_links.discord_user_id = excluded.discord_user_id THEN discord_links.channel_id ELSE NULL END,
+        linked_at = excluded.linked_at`, userId, discordUserId, username, now);
+    },
+    cacheDiscordChannel(userId: string, channelId: string) {
+      run('UPDATE discord_links SET channel_id = ? WHERE user_id = ?', channelId, userId);
+    },
+    unlinkDiscordUser: (userId: string) => Number(run('DELETE FROM discord_links WHERE user_id = ?', userId).changes) > 0,
     countUsers: () => n('SELECT COUNT(*) n FROM users'),
     listUsers() {
       return all(`SELECT u.*, (SELECT COUNT(*) FROM rules WHERE owner_id = u.id) rule_count,
@@ -188,9 +204,9 @@ export function createRepo(db: DatabaseSync) {
     recordHit: (h: { ruleId: string; channelId: string; count: number; firedAt: number; sentTs: number | null }): number =>
       Number(run('INSERT INTO hit_log (rule_id, channel_id, count, fired_at, sent_ts) VALUES (?,?,?,?,?)', h.ruleId, h.channelId, h.count, h.firedAt, h.sentTs).lastInsertRowid),
     /** Once per delivery: 3 consecutive failures mark the target 'failing'; one success resets. */
-    recordDeliveryResult(targetId: string, ok: boolean) {
-      if (ok) run(`UPDATE targets SET fail_count = 0, status = 'ok' WHERE id = ?`, targetId);
-      else run(`UPDATE targets SET fail_count = fail_count + 1, status = CASE WHEN fail_count + 1 >= 3 THEN 'failing' ELSE status END WHERE id = ?`, targetId);
+    recordDeliveryResult(targetId: string, ok: boolean, error?: string, immediateFail = false) {
+      if (ok) run(`UPDATE targets SET fail_count = 0, status = 'ok', last_error = NULL WHERE id = ?`, targetId);
+      else run(`UPDATE targets SET fail_count = fail_count + 1, last_error = ?, status = CASE WHEN ? OR fail_count + 1 >= 3 THEN 'failing' ELSE status END WHERE id = ?`, error ?? null, immediateFail ? 1 : 0, targetId);
     },
     /** Appends one target's result to a hit's results. */
     appendHitResult(hitId: number, targetId: string, ok: boolean, ts = Date.now()) {

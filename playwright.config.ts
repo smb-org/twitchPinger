@@ -21,6 +21,7 @@ export default defineConfig({
         NODE_ENV: 'test', READER: 'fake', INSECURE_COOKIES: '1', PORT: '12174', PUBLIC_URL: 'http://localhost:12174',
         SESSION_SECRET: 'e2e-session-secret-0123456789-abcdefghij', DATA_DIR,
         TWITCH_CLIENT_ID: 'x', TWITCH_CLIENT_SECRET: 'y', TWITCH_AUTH_BASE: 'http://localhost:12175', TWITCH_HELIX_BASE: 'http://localhost:12175/helix',
+        DISCORD_CLIENT_ID: 'discord-client', DISCORD_CLIENT_SECRET: 'discord-secret', DISCORD_BOT_TOKEN: 'discord-bot-token', DISCORD_BASE_URL: 'http://localhost:12175/discord',
         ADMIN_TWITCH_USER_ID: '1000', NTFY_BASE_URL: 'https://ntfy.example.test',
       },
     },

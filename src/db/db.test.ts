@@ -23,7 +23,20 @@ test('migrations set user_version and are idempotent', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mn-'));
   openDb(join(dir, 'a.db')).close();
   const db = openDb(join(dir, 'a.db'));
-  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 1);
+  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 2);
+});
+
+test('Discord link replaces identity, clears a stale DM channel, and unlink removes the cached channel', () => {
+  const { repo } = setup();
+  repo.linkDiscordUser('u1', 'discord-1', 'first_name');
+  repo.cacheDiscordChannel('u1', 'channel-1');
+  assert.deepEqual(repo.getDiscordLink('u1'), { userId: 'u1', discordUserId: 'discord-1', username: 'first_name', channelId: 'channel-1' });
+  repo.linkDiscordUser('u1', 'discord-1', 'renamed');
+  assert.equal(repo.getDiscordLink('u1')!.channelId, 'channel-1');
+  repo.linkDiscordUser('u1', 'discord-2', 'new_account');
+  assert.deepEqual(repo.getDiscordLink('u1'), { userId: 'u1', discordUserId: 'discord-2', username: 'new_account', channelId: null });
+  assert.equal(repo.unlinkDiscordUser('u1'), true);
+  assert.equal(repo.getDiscordLink('u1'), undefined);
 });
 
 test('desiredChannelLogins excludes locked users and unsubscribed channels', () => {
@@ -65,6 +78,24 @@ test('target is failing after 3 consecutive failures, success resets', () => {
   assert.equal(repo.getTarget('t1')!.failCount, 3);
   repo.recordDeliveryResult('t1', true);
   assert.deepEqual([repo.getTarget('t1')!.status, repo.getTarget('t1')!.failCount], ['ok', 0]);
+});
+
+test('permanent Discord DM failure marks the target failing immediately and stores its hint', () => {
+  const { repo } = setup();
+  repo.saveTarget({ id: 'dm', ownerId: 'u1', kind: 'discord_dm', name: 'Discord', url: '', token: null });
+  const hint = 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.';
+  repo.recordDeliveryResult('dm', false, hint, true);
+  assert.deepEqual([repo.getTarget('dm')!.status, repo.getTarget('dm')!.failCount, repo.getTarget('dm')!.lastError], ['failing', 1, hint]);
+  repo.recordDeliveryResult('dm', true);
+  assert.deepEqual([repo.getTarget('dm')!.status, repo.getTarget('dm')!.failCount, repo.getTarget('dm')!.lastError], ['ok', 0, null]);
+});
+
+test('changing a target URL clears stale delivery errors and failure state', () => {
+  const { repo } = setup();
+  repo.saveTarget({ id: 'ntfy', ownerId: 'u1', kind: 'ntfy', name: 'phone', url: 'https://ntfy.test/old', token: null });
+  repo.recordDeliveryResult('ntfy', false, 'Old endpoint is down');
+  repo.saveTarget({ id: 'ntfy', ownerId: 'u1', kind: 'ntfy', name: 'phone', url: 'https://ntfy.test/new', token: null });
+  assert.deepEqual([repo.getTarget('ntfy')!.status, repo.getTarget('ntfy')!.failCount, repo.getTarget('ntfy')!.lastError], ['ok', 0, null]);
 });
 
 test('lastFired, saveRule resets it, lastPings and purge', () => {
