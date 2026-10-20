@@ -17,7 +17,7 @@ colors:
   warning: "#f2a93b"
 typography:
   display:
-    fontFamily: General Sans
+    fontFamily: Manrope
     fontWeight: 600
     fontSize: 1.75rem
     letterSpacing: -0.01em
@@ -83,11 +83,11 @@ components:
 
 ## Typography
 
-- **Display:** General Sans 600, nur für Seitentitel (H1). Quelle: Fontshare, selbst gehostet.
+- **Display:** Manrope 600, nur für Seitentitel (H1). Quelle: Fontsource (SIL OFL 1.1), selbst gehostet.
 - **Body/UI:** Atkinson Hyperlegible Next 400/500/700, gewählt für Lesbarkeit und unterscheidbare Zeichen (Il1, O0). Google-Fonts-Familie, selbst gehostet (OFL).
 - **Mono:** JetBrains Mono 400/500 mit `tnum` für Chatzeilen, Benutzernamen, Channel-Logins, Zeiten, Zähler und Regex. Selbst gehostet (OFL).
 - Skala: H1 1.75rem, H2 1.25rem, Body 1rem, Label 0.875rem, Mono-Daten 0.9375rem. Body nie unter 16 px.
-- Keine Anfrage an Google oder Fontshare zur Laufzeit; Dateien liegen im SPA-Build, `font-display: swap`.
+- Keine Anfrage an Google zur Laufzeit; Dateien liegen im SPA-Build, `font-display: swap`.
 
 ## Layout
 

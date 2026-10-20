@@ -6,7 +6,7 @@
   --strip: 40px; --nav-w: 240px; --bar: 44px;
   --f-body: 'Atkinson Hyperlegible Next', system-ui, sans-serif;
   --f-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  --f-display: 'General Sans', var(--f-body);
+  --f-display: 'Manrope', var(--f-body);
   color-scheme: dark;
   scrollbar-color: var(--line) var(--surface);
 }

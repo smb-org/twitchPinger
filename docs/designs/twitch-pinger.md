@@ -669,7 +669,7 @@ Ab 768 px wie Mockup A. Darunter: Navigation als untere Leiste (4 Einträge, 44-
 Body ≥ 16 px, Kontrast ≥ 4,5:1; Bernstein nur für Akzente und großen Text. Builder-Bausteine sind Buttons in Tab-Reihenfolge, Entf/Pfeiltasten zum Umordnen. Vorschau-Zähler `aria-live=polite`, die Liste nicht. Landmarks `nav`/`main`. Treffer per Unterstreichung UND Farbe. 44-px-Ziele. Playwright-axe-Check pro Seite.
 
 ### Designsystem (6B, erledigt)
-`DESIGN.md` im Repo-Root ist verbindlich (erstellt per /design-consultation am 2026-10-20): Tinten-Neutrals, Bernstein `#f2a93b` nur für Ereignisse, General Sans / Atkinson Hyperlegible Next / JetBrains Mono, keine Schatten/Karten, Glut als einziger Motion-Moment. Logo: Wortmarke in General Sans, kein Bildzeichen in v1.
+`DESIGN.md` im Repo-Root ist verbindlich (erstellt per /design-consultation am 2026-10-20): Tinten-Neutrals, Bernstein `#f2a93b` nur für Ereignisse, Manrope / Atkinson Hyperlegible Next / JetBrains Mono, keine Schatten/Karten, Glut als einziger Motion-Moment. Logo: Wortmarke in General Sans, kein Bildzeichen in v1.
 
 ## Approved Mockups
 
