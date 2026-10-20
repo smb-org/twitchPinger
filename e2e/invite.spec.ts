@@ -1,6 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { nextTwitchUser } from './helpers.ts';
 
+test('login explains that new accounts require an invitation', async ({ page }) => {
+  await page.goto('/login?error=no_invite');
+  await expect(page.getByRole('alert')).toHaveText('Kein Konto gefunden. Der Zugang ist nur mit Einladungslink möglich.');
+});
+
 test('invite flow: admin creates, new user redeems, reuse fails', async ({ browser, request }) => {
   const admin = await browser.newContext();
   const ap = await admin.newPage();

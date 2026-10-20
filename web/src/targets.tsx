@@ -66,7 +66,7 @@ export function TargetForm({ count, onCreated }: { count: number; onCreated: (t:
     setBusy(true);
     setErr(null);
     try {
-      const r = await api<{ target: TargetDto }>('POST', '/targets', { kind, name, ...(kind === 'discord' ? { url } : {}) });
+      const r = await api<{ target: TargetDto }>('POST', '/targets', { kind, name, ...(url.trim() ? { url: url.trim() } : {}) });
       setUrl('');
       onCreated(r.target);
     } catch (x) {
@@ -75,7 +75,7 @@ export function TargetForm({ count, onCreated }: { count: number; onCreated: (t:
       setBusy(false);
     }
   }
-  const pick = (k: 'ntfy' | 'discord') => { setKind(k); setName(k === 'ntfy' ? 'Handy' : 'Discord'); setErr(null); };
+  const pick = (k: 'ntfy' | 'discord') => { setKind(k); setName(k === 'ntfy' ? 'Handy' : 'Discord'); setUrl(''); setErr(null); };
   return (
     <form class="inline-form" onSubmit={submit}>
       <div class="seg" role="group" aria-label="Zielart">
@@ -87,12 +87,10 @@ export function TargetForm({ count, onCreated }: { count: number; onCreated: (t:
           <span class="lbl">Name</span>
           <input value={name} onInput={(e) => setName(val(e))} maxLength={60} />
         </label>
-        {kind === 'discord' && (
-          <label class="grow">
-            <span class="lbl">Webhook-URL</span>
-            <input class="mono" value={url} onInput={(e) => { setUrl(val(e)); setErr(null); }} placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck={false} />
-          </label>
-        )}
+        <label class="grow">
+          <span class="lbl">{kind === 'ntfy' ? 'Server-URL' : 'Webhook-URL'}</span>
+          <input class="mono" value={url} onInput={(e) => { setUrl(val(e)); setErr(null); }} placeholder={kind === 'ntfy' ? 'Optional, z. B. https://ntfy.sh/topic' : 'https://discord.com/api/webhooks/…'} autocomplete="off" spellcheck={false} required={kind === 'discord'} />
+        </label>
         <button class="btn" disabled={busy || full || !name.trim() || (kind === 'discord' && !url.trim())}>
           {busy ? 'Lege an…' : kind === 'ntfy' ? 'Neues Handy-Ziel' : 'Ziel anlegen'}
         </button>

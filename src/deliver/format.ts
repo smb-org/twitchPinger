@@ -22,8 +22,7 @@ export function formatBatch(hits: Hit[]): Formatted {
 }
 
 export function toDiscord(f: Formatted): { content: string; allowed_mentions: { parse: never[] } } {
-  let content = `**${f.title}**\n${f.text}\n${f.url}`.replace(/@(?=everyone|here)/gi, '@​');
-  if (content.length > 2000) content = `${content.slice(0, 1999)}…`;
+  const content = `**${f.title}**\n${f.text}\n${f.url}`.replace(/@(?=everyone|here)/gi, '@​');
   return { content, allowed_mentions: { parse: [] } };
 }
 

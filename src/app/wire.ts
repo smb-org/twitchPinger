@@ -71,6 +71,10 @@ export function createService(deps: ServiceDeps) {
     clearTimer: (h) => timers.clear(h),
     post: deps.post,
     log,
+    getTarget: (id) => {
+      const t = repo.getTarget(id);
+      return t ? withToken(t) : undefined;
+    },
     onResult(r) {
       repo.recordDeliveryResult(r.targetId, r.ok);
       for (const h of r.hits) {
@@ -86,9 +90,10 @@ export function createService(deps: ServiceDeps) {
     getLastFired: repo.getLastFired,
     setLastFired: repo.setLastFired,
     onHit(hit) {
-      hitIds.set(hit, repo.recordHit({ ruleId: hit.ruleId, channelId: hit.channelId, count: hit.count, firedAt: hit.firedAt, sentTs: hit.sample.sentAt }));
       const rule = repo.getRule(hit.ruleId);
-      if (!rule) return;
+      const owner = rule && repo.getUser(rule.ownerId);
+      if (!rule || !rule.enabled || !owner || owner.locked) return;
+      hitIds.set(hit, repo.recordHit({ ruleId: hit.ruleId, channelId: hit.channelId, count: hit.count, firedAt: hit.firedAt, sentTs: hit.sample.sentAt }));
       const targets = rule.targetIds.map((id) => repo.getTarget(id)).filter((t): t is Target => !!t && t.ownerId === rule.ownerId).map(withToken);
       if (targets.length) deliverer.deliver(hit, targets);
     },
@@ -109,7 +114,12 @@ export function createService(deps: ServiceDeps) {
     engine.setRules(repo.listEnabledRules());
     reader.setChannels(repo.desiredChannelLogins()).catch((e) => log(`setChannels failed: ${e}`));
   }
-  function onConfigChanged(): void {
+  function onConfigChanged(immediate = false): void {
+    if (immediate) {
+      if (debounce !== null) timers.clear(debounce);
+      applyConfig();
+      return;
+    }
     if (debounce !== null) timers.clear(debounce);
     debounce = timers.set(applyConfig, 250);
   }

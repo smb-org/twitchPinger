@@ -40,7 +40,7 @@ export interface ApiDeps {
   /** Returns an error message (German, user-facing) or null if the URL is acceptable. */
   checkTargetUrl(kind: TargetKind, url: string): string | null | Promise<string | null>;
   /** Called after every mutation that affects channels, rules or users. */
-  onConfigChanged(): void;
+  onConfigChanged(immediate?: boolean): void;
   /** Clock in ms, injectable for tests. */
   now?(): number;
 }

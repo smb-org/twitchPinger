@@ -2,9 +2,13 @@
 base-url: "https://ntfy.example.org"
 listen-http: ":80"
 behind-proxy: true
+upstream-base-url: "https://ntfy.sh"
 auth-file: /var/lib/ntfy/user.db
 auth-default-access: "deny-all"
 cache-file: /var/cache/ntfy/cache.db
+# All app users publish through one server-side account and visitor IP.
+visitor-request-limit-burst: 1000
+visitor-request-limit-replenish: "1s"
 # Users and tokens contain secrets and come from the environment (compose.yaml):
 #   NTFY_AUTH_USERS  = marble:<bcrypt hash>:user
 #   NTFY_AUTH_TOKENS = marble:<NTFY_APP_TOKEN>:app

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { openDb } from '../db/db.ts';
 import { createRepo } from '../db/repo.ts';
 import { LIMITS_DEFAULTS } from '../types.ts';
-import type { ChatMessage } from '../types.ts';
+import type { ChatMessage, ReaderHealth } from '../types.ts';
 import { createApi } from './app.ts';
 import { createTwitch } from './twitch.ts';
 import type { ApiConfig, ApiDeps } from './deps.ts';
@@ -37,11 +37,13 @@ function fakeFetch(): typeof fetch {
   }) as typeof fetch;
 }
 
-function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string } = {}) {
+function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string } = {}, overrides: Partial<ApiDeps> = {}) {
   const db = openDb(':memory:');
   const repo = createRepo(db);
   let t = 1_000_000;
   let changes = 0;
+  let immediateChanges = 0;
+  let readerHealth: ReaderHealth = { connected: true, since: 1, joined: 2, desired: 2, lastMessageAt: null };
   const messages: ChatMessage[] = [{ channel: 'marbles_one', channelId: 'ch-marbles_one', userId: 'x9', login: 'viewer', displayName: 'Viewer', text: '!play', badges: ['vip'], sentAt: 5, receivedAt: 6 }];
   const tests: any[] = [];
   const config: ApiConfig = {
@@ -51,17 +53,18 @@ function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string }
   const deps: ApiDeps = {
     config, db, repo,
     twitch: createTwitch({ clientId: 'cid', clientSecret: 'sec', authBase: 'https://auth.test', helixBase: 'https://auth.test/helix', fetch: fakeFetch() }),
-    reader: { health: () => ({ connected: true, since: 1, joined: 2, desired: 2, lastMessageAt: null }), recent: (l) => (l === 'marbles_one' ? messages : []) },
+    reader: { health: () => readerHealth, recent: (l) => (l === 'marbles_one' ? messages : []) },
     deliverer: { sendTest: async (tg) => { tests.push(tg); return { ok: true }; } },
     validateRegex: (p) => { try { new RegExp(p); return /\(\?<?[=!]/.test(p) ? { ok: false, error: 'lookaround' } : { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } },
     checkTargetUrl: (_k, url) => (url.startsWith('https://') ? null : 'Nur https erlaubt.'),
-    onConfigChanged: () => { changes++; },
+    onConfigChanged: (immediate) => { changes++; if (immediate) immediateChanges++; },
     now: () => t,
+    ...overrides,
   };
   const app = createApi(deps);
   const api = {
-    app, repo, deps, tests, advance: (ms: number) => { t += ms; },
-    get changes() { return changes; },
+    app, repo, deps, tests, advance: (ms: number) => { t += ms; }, setReaderHealth: (h: typeof readerHealth) => { readerHealth = h; },
+    get changes() { return changes; }, get immediateChanges() { return immediateChanges; },
     async req(path: string, o: { method?: string; cookie?: string; origin?: string | null; body?: unknown } = {}) {
       const headers: Record<string, string> = {};
       if (o.cookie) headers.cookie = o.cookie;
@@ -102,6 +105,25 @@ test('health needs no auth; protected routes give 401', async () => {
   assert.equal((await j(r)).error.code, 'unauthorized');
 });
 
+test('health fails after the disconnected startup grace and sustained join shortfall', async () => {
+  const a = setup();
+  a.setReaderHealth({ connected: false, since: 1_000_000, joined: 0, desired: 1, lastMessageAt: null });
+  assert.equal((await a.req('/health')).status, 200);
+  a.advance(120_001);
+  const down = await a.req('/health');
+  assert.equal(down.status, 503);
+  const downBody = await j(down);
+  assert.deepEqual(Object.keys(downBody).sort(), ['ok', 'reader']);
+  assert.equal(downBody.ok, false);
+
+  a.setReaderHealth({ connected: true, since: 1_120_001, joined: 0, desired: 1, lastMessageAt: null });
+  assert.equal((await a.req('/health')).status, 200);
+  a.advance(60_001);
+  assert.equal((await a.req('/health')).status, 503);
+  a.setReaderHealth({ connected: true, since: 1_180_002, joined: 1, desired: 1, lastMessageAt: null });
+  assert.equal((await a.req('/health')).status, 200);
+});
+
 test('Origin check: POST without or with foreign origin is 403', async () => {
   const a = setup();
   const { cookie } = await a.login('admin');
@@ -137,7 +159,7 @@ test('Secure flag set when cookies are not insecure', async () => {
   assert.match(r.headers.get('set-cookie')!, /Secure/);
 });
 
-test('callback: tampered state, missing code and unknown user without invite fail', async () => {
+test('callback: tampered state fails, and unknown users without invites get a specific rejection', async () => {
   const a = setup();
   const r1 = await a.app.request('/api/auth/login');
   const state = new URL(r1.headers.get('location')!).searchParams.get('state')!;
@@ -146,7 +168,15 @@ test('callback: tampered state, missing code and unknown user without invite fai
   assert.equal(bad.headers.get('location'), '/login?error=oauth_failed');
   const tampered = await a.app.request(`/api/auth/callback?code=admin&state=${state}`, { headers: { cookie: ck.replace(/.$/, (c) => (c === 'A' ? 'B' : 'A')) } });
   assert.equal(tampered.headers.get('location'), '/login?error=oauth_failed');
-  assert.equal((await a.login('alice')).location, '/login?error=invite_invalid');
+  const warnings: string[] = [];
+  const warn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(' '));
+  try {
+    assert.equal((await a.login('alice')).location, '/login?error=no_invite');
+  } finally {
+    console.warn = warn;
+  }
+  assert.match(warnings.join(' '), /2.*alice|alice.*2/);
   assert.equal(a.repo.getUser('2'), undefined);
 });
 
@@ -275,6 +305,28 @@ test('rules: create/update/delete, validation errors, limit, ownership, updatedA
   assert.equal((await j(await a.req('/rules/validate-regex', { method: 'POST', cookie: alice, body: { pattern: 'a+' } }))).ok, true);
 });
 
+test('concurrent rule creation keeps the per-user limit atomic', async () => {
+  const a = setup({ MAX_RULES_PER_USER: 1 });
+  const { alice } = await member(a);
+  const body = { name: 'r', matcher: { mode: 'contains', pattern: 'x' } };
+  const results = await Promise.all([
+    a.req('/rules', { method: 'POST', cookie: alice, body }),
+    a.req('/rules', { method: 'POST', cookie: alice, body }),
+  ]);
+  assert.deepEqual(results.map((r) => r.status).sort(), [201, 409]);
+  assert.equal(a.repo.countRules('2'), 1);
+});
+
+test('disabling a rule applies configuration immediately', async () => {
+  const a = setup();
+  const { alice } = await member(a);
+  const create = await a.req('/rules', { method: 'POST', cookie: alice, body: { name: 'r', matcher: { mode: 'contains', pattern: 'x' } } });
+  const rule = (await j(create)).rule;
+  const update = await a.req(`/rules/${rule.id}`, { method: 'PUT', cookie: alice, body: { ...rule, enabled: false } });
+  assert.equal(update.status, 200);
+  assert.equal(a.immediateChanges, 1);
+});
+
 test('preview: only own channels', async () => {
   const a = setup();
   const { admin, alice } = await member(a);
@@ -314,6 +366,22 @@ test('targets: ntfy gets generated mn- topic, tokens never returned, url check, 
   const before = a.changes;
   assert.equal((await a.req(`/targets/${t.id}`, { method: 'DELETE', cookie: alice })).status, 200);
   assert.equal(a.changes, before + 1);
+});
+
+test('concurrent target creation keeps the per-user limit atomic after URL validation', async () => {
+  let validations = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const a = setup({}, {}, { checkTargetUrl: async () => { validations++; if (validations === 2) release(); await gate; return null; } });
+  const { alice } = await member(a);
+  for (let i = 0; i < 9; i++) a.repo.saveTarget({ id: `old-${i}`, ownerId: '2', kind: 'ntfy', name: `old-${i}`, url: `https://ntfy.example/${i}`, token: null });
+  const body = { kind: 'ntfy', name: 'phone', url: 'https://ntfy.example/custom' };
+  const results = await Promise.all([
+    a.req('/targets', { method: 'POST', cookie: alice, body }),
+    a.req('/targets', { method: 'POST', cookie: alice, body }),
+  ]);
+  assert.deepEqual(results.map((r) => r.status).sort(), [201, 409]);
+  assert.equal(a.repo.countTargets('2'), 10);
 });
 
 test('overview: rules with cooldown info and last pings; me counts', async () => {
@@ -363,6 +431,22 @@ test('admin: lock semantics, unlock, authorization, onConfigChanged', async () =
   assert.equal((await a.req('/admin/users/999/lock', { method: 'POST', cookie: admin })).status, 404);
   assert.equal((await a.req('/admin/users/2/unlock', { method: 'POST', cookie: admin })).status, 200);
   assert.equal((await a.login('alice')).location, '/');
+});
+
+test('unlock preserves the global desired-channel capacity', async () => {
+  const a = setup({ MAX_CHANNELS_TOTAL: 2 });
+  const { admin, alice } = await member(a);
+  const add = (cookie: string, login: string) => a.req('/channels', { method: 'POST', cookie, body: { login } });
+  await add(alice, 'marbles_one');
+  await a.req('/admin/users/2/lock', { method: 'POST', cookie: admin });
+  await add(admin, 'marbles_two');
+  await add(admin, 'marbles_three');
+
+  const unlock = await a.req('/admin/users/2/unlock', { method: 'POST', cookie: admin });
+  assert.equal(unlock.status, 409);
+  assert.equal((await j(unlock)).error.code, 'limit_total_channels');
+  assert.deepEqual(a.repo.desiredChannelLogins(), ['marbles_three', 'marbles_two']);
+  assert.equal(a.repo.getUser('2')!.locked, true);
 });
 
 test('logout deletes the session', async () => {

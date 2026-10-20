@@ -54,3 +54,17 @@ test('rule builder preview, no layout shift, save', async ({ browser }) => {
   await expect(page.getByText('Gespeichert, Fenster zurückgesetzt')).toBeVisible();
   await expect(page).toHaveURL(/\/rules\/.+/);
 });
+
+test('long whole-word patterns stay in word mode and explain reserved regex space', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  await loginAs(ctx, '4002', 'builder_long_pattern');
+  const page = await ctx.newPage();
+
+  await page.goto('/rules/new');
+  await page.getByRole('button', { name: 'ganzes Wort' }).click();
+  await page.getByLabel('Text', { exact: true }).fill('x'.repeat(190));
+  await page.getByRole('button', { name: 'Ausdruck' }).click();
+
+  await expect(page.getByRole('button', { name: 'ganzes Wort' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.builder p[role="status"]')).toContainText('Wortgrenzen');
+});

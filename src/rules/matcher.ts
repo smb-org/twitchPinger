@@ -8,7 +8,14 @@ export interface MatchResult { matched: boolean; ranges: Ranges }
 const NO_MATCH: MatchResult = { matched: false, ranges: [] };
 const WORD_BEFORE = /[\p{L}\p{N}_]$/u;
 const WORD_AFTER = /^[\p{L}\p{N}_]/u;
+export const WORD_REGEX_PREFIX = '(^|[^\\pL\\pN_])(';
+export const WORD_REGEX_SUFFIX = ')($|[^\\pL\\pN_])';
 const lower = (s: string): string => s.toLocaleLowerCase('de');
+
+function wordRegexBody(pattern: string): string | null {
+  if (!pattern.startsWith(WORD_REGEX_PREFIX) || !pattern.endsWith(WORD_REGEX_SUFFIX)) return null;
+  return pattern.slice(WORD_REGEX_PREFIX.length, -WORD_REGEX_SUFFIX.length);
+}
 
 /** Lowercased text plus, per lowered UTF-16 unit, the original [start,end) it came from. */
 function fold(text: string): { low: string; starts: number[] | null; ends: number[] | null } {
@@ -63,14 +70,18 @@ function stringMatcher(m: Matcher): (text: string) => MatchResult {
 /** Compile a matcher once; the returned function is reusable. Regex mode uses RE2 (linear time). */
 export function compileMatcher(m: Matcher): (text: string) => MatchResult {
   if (m.mode !== 'regex') return stringMatcher(m);
-  const re = RE2JS.compile(m.pattern, m.caseSensitive ? 0 : RE2JS.CASE_INSENSITIVE);
+  const body = wordRegexBody(m.pattern);
+  const re = RE2JS.compile(body ?? m.pattern, m.caseSensitive ? 0 : RE2JS.CASE_INSENSITIVE);
   return (text) => {
     const mt = re.matcher(text);
     const ranges: Ranges = [];
     let matched = false;
     while (mt.find()) {
+      const start = mt.start();
+      const end = mt.end();
+      if (body !== null && (WORD_BEFORE.test(text.slice(Math.max(0, start - 2), start)) || WORD_AFTER.test(text.slice(end, end + 2)))) continue;
       matched = true;
-      if (mt.end() > mt.start()) ranges.push([mt.start(), mt.end()]);
+      if (end > start) ranges.push([start, end]);
     }
     return matched ? { matched, ranges } : NO_MATCH;
   };

@@ -1,5 +1,6 @@
 import type { Badge, Limits, MatchMode, Rule } from './api.ts';
-import { validateRegex } from '../../src/rules/matcher.ts';
+import { validateRegex, WORD_REGEX_PREFIX, WORD_REGEX_SUFFIX } from '../../src/rules/matcher.ts';
+import { LIMITS_DEFAULTS } from '../../src/types.ts';
 
 export type BlockKind = 'text' | 'or' | 'wb' | 'digits' | 'any' | 'raw';
 export interface Block { id: number; kind: BlockKind; text?: string }
@@ -90,5 +91,15 @@ export function validate(f: Form, L: Limits): Record<string, string> {
 export function readable(f: Form): string {
   if (!f.pattern) return '';
   const p = esc(f.pattern);
-  return f.mode === 'word' ? `\\b${p}\\b` : f.mode === 'prefix' ? `^${p}` : f.mode === 'regex' ? f.pattern : p;
+  return f.mode === 'word' ? `${WORD_REGEX_PREFIX}${p}${WORD_REGEX_SUFFIX}` : f.mode === 'prefix' ? `^${p}` : f.mode === 'regex' ? f.pattern : p;
+}
+
+export function wordRegexConversion(pattern: string, maxLen = LIMITS_DEFAULTS.REGEX_MAX_LEN): { pattern: string | null; hint?: string } {
+  const converted = `${WORD_REGEX_PREFIX}${esc(pattern)}${WORD_REGEX_SUFFIX}`;
+  if (converted.length <= maxLen) return { pattern: converted };
+  const reserved = converted.length - esc(pattern).length;
+  return {
+    pattern: null,
+    hint: `Für die Wortgrenzen sind ${reserved} Zeichen reserviert; die Umwandlung wäre ${converted.length}/${maxLen} Zeichen lang. Kürze das Suchmuster vor dem Wechsel in den Ausdrucksmodus.`,
+  };
 }

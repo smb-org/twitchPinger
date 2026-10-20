@@ -2,6 +2,7 @@ import { useLocation } from '../router.tsx';
 import { useTitle } from '../ui.tsx';
 
 const ERRORS: Record<string, string> = {
+  no_invite: 'Kein Konto gefunden. Der Zugang ist nur mit Einladungslink möglich.',
   invite_invalid: 'Diese Einladung ist ungültig. Frag nach einem neuen Link.',
   invite_used: 'Diese Einladung wurde schon benutzt – frag nach einem neuen Link.',
   invite_expired: 'Diese Einladung ist abgelaufen – frag nach einem neuen Link.',

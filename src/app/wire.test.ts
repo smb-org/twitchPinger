@@ -7,6 +7,7 @@ import { openDb } from '../db/db.ts';
 import { createRepo } from '../db/repo.ts';
 import { loadConfig } from '../api/config.ts';
 import { createTwitch } from '../api/twitch.ts';
+import { hashSessionId } from '../api/session.ts';
 import { msg, rule } from '../rules/fixtures.ts';
 import { createService } from './wire.ts';
 import type { Timers } from './wire.ts';
@@ -81,6 +82,38 @@ test('onConfigChanged is debounced and updates reader channels and engine rules'
   assert.equal(s.svc.reader.health().desired, 1);
   s.svc.fakeReader!.push(msg('!play'));
   assert.equal(s.svc.engine.stats().messages, 1);
+});
+
+test('a lock immediately removes cached rules and desired channels', async () => {
+  const s = setup();
+  seed(s);
+  s.repo.createUser({ id: 'admin', login: 'admin', displayName: 'Admin', isAdmin: true, invitedBy: null, now: 1 });
+  s.repo.insertSession(hashSessionId('admin-session'), 'admin', s.clock.now(), s.clock.now() + 60_000, []);
+  s.svc.onConfigChanged();
+  assert.equal(s.timers.fns.length, 1);
+
+  const response = await s.svc.api.request('/api/admin/users/o1/lock', {
+    method: 'POST', headers: { Origin: s.config.publicUrl, Cookie: 'mn_session=admin-session' },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(s.timers.fns.length, 0);
+  assert.equal(s.svc.reader.health().desired, 0);
+  s.svc.fakeReader!.push(msg('!play'));
+  await s.svc.deliverer.flushAll();
+  assert.equal(s.repo.lastPings('o1').length, 0);
+  assert.equal(s.posts.length, 0);
+});
+
+test('onHit rechecks a locked owner before recording or dispatching cached hits', async () => {
+  const s = setup();
+  seed(s);
+  s.svc.onConfigChanged();
+  s.timers.fns.shift()!();
+  s.repo.lockUser('o1'); // simulate a stale cached engine rule during the config propagation boundary
+  s.svc.fakeReader!.push(msg('!play'));
+  await s.svc.deliverer.flushAll();
+  assert.equal(s.repo.lastPings('o1').length, 0);
+  assert.equal(s.posts.length, 0);
 });
 
 test('dead-man: disconnect alarms once, Entwarnung once', async () => {

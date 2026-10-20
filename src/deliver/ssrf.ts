@@ -48,7 +48,7 @@ function isPublicV6(ip: string): boolean {
   if (zeros(6)) return false; // ::/96 IPv4-compatible
   if (zeros(5) && g[5] === 0xffff) return isPublicV4(embedded()); // ::ffff:0:0/96
   if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((x) => x === 0)) return isPublicV4(embedded()); // 64:ff9b::/96
-  if (g[0] === 0x100 && g[1] === 0 && g[2] === 0 && g[3] === 0) return false; // 100::/64
+  if (g[0] === 0x100 && g[1] === 0 && g[2] === 0 && g[3]! <= 1) return false; // 100::/64 and 100:0:0:1::/64
   if (g[0] === 0x2001 && (g[1]! < 0x200 || g[1] === 0xdb8)) return false; // 2001::/23, docs
   if (g[0] === 0x64 && g[1] === 0xff9b && g[2] === 1) return false; // 64:ff9b:1::/48
   if (g[0] === 0x2002) return false; // 6to4
@@ -56,6 +56,8 @@ function isPublicV6(ip: string): boolean {
   if ((g[0]! & 0xfe00) === 0xfc00) return false; // fc00::/7
   if ((g[0]! & 0xffc0) === 0xfe80) return false; // fe80::/10
   if ((g[0]! & 0xff00) === 0xff00) return false; // ff00::/8
+  if ((g[0]! & 0xe000) !== 0x2000) return false; // IPv6 global-unicast allocation space is currently 2000::/3
+  if (g[0] === 0x3fff && (g[1]! & 0xf000) === 0) return false; // 3fff::/20 documentation
   return true;
 }
 
@@ -82,7 +84,7 @@ export function checkTargetUrl(kind: TargetKind, url: string): { ok: true } | { 
 }
 
 export interface PostInit { headers: Record<string, string>; body: string; timeoutMs: number }
-export type PostResult = { status: number; body: string };
+export type PostResult = { status: number; body: string; retryAfter?: string };
 const MAX_BODY = 64 * 1024;
 
 function err(code: string, msg: string): Error {
@@ -91,24 +93,50 @@ function err(code: string, msg: string): Error {
 
 function request(url: string, init: PostInit, lookup: unknown, mod: typeof https | typeof http): Promise<PostResult> {
   return new Promise((resolve, reject) => {
-    const req = mod.request(url, {
-      method: 'POST',
-      headers: { ...init.headers, 'Content-Length': Buffer.byteLength(init.body) },
-      lookup,
-    } as https.RequestOptions, (res) => {
-      const chunks: Buffer[] = [];
-      let size = 0;
-      res.on('data', (c: Buffer) => {
-        if (size >= MAX_BODY) return;
-        chunks.push(c.subarray(0, MAX_BODY - size));
-        size += c.length;
+    let req: http.ClientRequest | undefined;
+    let settled = false;
+    const timer = setTimeout(() => {
+      const e = err('TIMEOUT', 'Zeitüberschreitung');
+      finishReject(e);
+      req?.destroy(e);
+    }, init.timeoutMs);
+    const finishReject = (e: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(e);
+    };
+    const finishResolve = (r: PostResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(r);
+    };
+    try {
+      req = mod.request(url, {
+        method: 'POST',
+        headers: { ...init.headers, 'Content-Length': Buffer.byteLength(init.body) },
+        lookup,
+      } as https.RequestOptions, (res) => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        res.on('data', (c: Buffer) => {
+          if (size >= MAX_BODY) return;
+          chunks.push(c.subarray(0, MAX_BODY - size));
+          size += c.length;
+        });
+        res.on('end', () => {
+          const retryAfter = res.headers['retry-after'];
+          finishResolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8'), ...(retryAfter ? { retryAfter: Array.isArray(retryAfter) ? retryAfter[0] : retryAfter } : {}) });
+        });
+        res.on('error', finishReject);
+        res.on('aborted', () => finishReject(err('RESPONSE_ABORTED', 'Antwort wurde abgebrochen')));
       });
-      res.on('end', () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') }));
-      res.on('error', reject);
-    });
-    req.setTimeout(init.timeoutMs, () => req.destroy(err('TIMEOUT', 'Zeitüberschreitung')));
-    req.on('error', reject);
-    req.end(init.body);
+      req.on('error', finishReject);
+      req.end(init.body);
+    } catch (e) {
+      finishReject(e instanceof Error ? e : new Error(String(e)));
+    }
   });
 }
 
@@ -137,6 +165,6 @@ export function safePost(url: string, init: PostInit, deps: { lookup?: typeof dn
 }
 
 /** POST for operator-configured URLs (http allowed, private addresses allowed). Never use for user input. */
-export function trustedPost(url: string, init: PostInit): Promise<PostResult> {
-  return request(url, init, undefined, url.startsWith('http:') ? http : https);
+export function trustedPost(url: string, init: PostInit, deps: { lookup?: typeof dns.lookup } = {}): Promise<PostResult> {
+  return request(url, init, deps.lookup, url.startsWith('http:') ? http : https);
 }

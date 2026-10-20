@@ -45,7 +45,8 @@ export function createR2(cfg: R2Config, fetchFn: typeof fetch = fetch, now: () =
     const headers = signV4({ method, host, path, query, payload, accessKeyId: cfg.accessKeyId, secretAccessKey: cfg.secretAccessKey, region: 'auto', service: 's3', date: new Date(now()) });
     delete headers.host;
     const qs = new URLSearchParams(query).toString();
-    const res = await fetchFn(`https://${host}${path.split('/').map(enc).join('/')}${qs ? '?' + qs : ''}`, { method, headers, body: method === 'PUT' ? payload : undefined });
+    const body = method !== 'PUT' ? undefined : typeof payload === 'string' ? payload : new Uint8Array(payload).buffer;
+    const res = await fetchFn(`https://${host}${path.split('/').map(enc).join('/')}${qs ? '?' + qs : ''}`, { method, headers, body });
     if (!res.ok) throw new Error(`r2 ${method} ${key || '/'} failed: ${res.status}`);
     return res;
   }

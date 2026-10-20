@@ -7,21 +7,24 @@ import type { Target } from '../types.ts';
 
 const target = (o: Partial<Target> = {}): Target => ({ id: 't1', ownerId: 'u', kind: 'ntfy', name: 'n', url: 'https://ntfy.example.org/mn-x', token: null, failCount: 0, status: 'ok', ...o });
 
-function setup(statuses: (number | Error)[] = []) {
+function setup(statuses: (number | Error | { status: number; retryAfter?: string })[] = [], options: { getTarget?: (id: string) => Target | undefined; sleep?: (ms: number) => Promise<void> } = {}) {
   let t = 0;
   const timers: { fn: () => void; at: number; id: number }[] = [];
   let nid = 0;
   const posts: { url: string; headers: Record<string, string>; body: string }[] = [];
   const results: DeliveryResult[] = [];
+  const waits: number[] = [];
   const d = createDeliverer({
     now: () => t,
     setTimer: (fn, ms) => { const x = { fn, at: t + ms, id: ++nid }; timers.push(x); return x.id; },
     clearTimer: (h) => { const i = timers.findIndex((x) => x.id === h); if (i >= 0) timers.splice(i, 1); },
+    sleep: async (ms) => { waits.push(ms); await options.sleep?.(ms); },
+    getTarget: options.getTarget,
     post: async (url, init) => {
       posts.push({ url, headers: init.headers, body: init.body });
       const s = statuses.shift() ?? 200;
       if (s instanceof Error) throw s;
-      return { status: s, body: '' };
+      return typeof s === 'number' ? { status: s, body: '' } : { status: s.status, body: '', ...(s.retryAfter ? { retryAfter: s.retryAfter } : {}) };
     },
     onResult: (r) => results.push(r),
   });
@@ -29,7 +32,7 @@ function setup(statuses: (number | Error)[] = []) {
     t += ms;
     for (const x of timers.filter((x) => x.at <= t).sort((a, b) => a.at - b.at)) { timers.splice(timers.indexOf(x), 1); x.fn(); }
   };
-  return { d, posts, results, advance };
+  return { d, posts, results, waits, advance };
 }
 
 test('window semantics', async () => {
@@ -84,6 +87,94 @@ test('retry once on 5xx and network error, not on 4xx', async () => {
   await s.d.flushAll();
   assert.equal(s.posts.length, 1);
   assert.equal(s.results[0]!.status, 404);
+});
+
+test('retries 429 once after Retry-After up to the five-minute cap', async () => {
+  let s = setup([{ status: 429, retryAfter: '7' }, 200]);
+  s.d.deliver(hit(), [target()]);
+  await s.d.flushAll();
+  assert.deepEqual(s.waits, [7000]);
+  assert.equal(s.posts.length, 2);
+  assert.equal(s.results[0]!.ok, true);
+
+  s = setup([{ status: 429, retryAfter: '999999' }, 200]);
+  s.d.deliver(hit(), [target()]);
+  await s.d.flushAll();
+  assert.deepEqual(s.waits, [300_000]);
+
+  s = setup([{ status: 429, retryAfter: '120' }, 200]);
+  s.d.deliver(hit(), [target()]);
+  await s.d.flushAll();
+  assert.deepEqual(s.waits, [120_000]);
+
+  s = setup([{ status: 429, retryAfter: new Date(5000).toUTCString() }, 200]);
+  s.d.deliver(hit(), [target()]);
+  await s.d.flushAll();
+  assert.deepEqual(s.waits, [5000]);
+});
+
+test('retry re-resolves destination and drops a deleted or rotated target', async () => {
+  const t = target();
+  const rotated = target({ url: 'https://ntfy.example.org/rotated' });
+  let current: Target | undefined = t;
+  let s = setup([{ status: 429, retryAfter: '2' }], {
+    getTarget: () => current,
+    sleep: async () => { current = rotated; },
+  });
+  s.d.deliver(hit(), [t]);
+  await s.d.flushAll();
+  assert.deepEqual(s.posts.map((p) => p.url), [t.url]);
+  assert.equal(s.results[0]!.ok, false);
+
+  let lookup = 0;
+  s = setup([500], {
+    getTarget: () => (++lookup === 1 ? t : undefined),
+  });
+  s.d.deliver(hit(), [t]);
+  await s.d.flushAll();
+  assert.deepEqual(s.posts.map((p) => p.url), [t.url]);
+  assert.equal(s.results[0]!.ok, false);
+});
+
+test('queued delivery resolves the target at dispatch time and drops deleted targets', async () => {
+  const t = target();
+  const current = new Map([[t.id, t]]);
+  const s = setup([], { getTarget: (id) => current.get(id) });
+  s.d.deliver(hit(), [t]);
+  await new Promise((r) => setImmediate(r));
+  s.d.deliver(hit({ ruleName: 'changed' }), [t]);
+  const updated = target({ url: 'https://ntfy.example.org/new-topic' });
+  current.set(t.id, updated);
+  s.advance(10_000);
+  await s.d.flushAll();
+  assert.deepEqual(s.posts.map((p) => p.url), [t.url, updated.url]);
+
+  current.set(t.id, t);
+  const second = setup([], { getTarget: (id) => current.get(id) });
+  second.d.deliver(hit(), [t]);
+  await new Promise((r) => setImmediate(r));
+  second.d.deliver(hit({ ruleName: 'deleted' }), [updated]);
+  current.delete(t.id);
+  second.advance(10_000);
+  await second.d.flushAll();
+  assert.deepEqual(second.posts.map((p) => p.url), [t.url]);
+});
+
+test('Discord batches split before the 2000-character limit and attribute every hit', async () => {
+  const s = setup();
+  const t = target({ kind: 'discord', url: 'https://discord.com/api/webhooks/1/token' });
+  const hits = Array.from({ length: 50 }, (_, i) => hit({ ruleName: `${String(i).padStart(2, '0')}-${'r'.repeat(50)}` }));
+  for (const h of hits) s.d.deliver(h, [t]);
+  s.advance(10_000);
+  await s.d.flushAll();
+
+  assert.ok(s.posts.length > 1);
+  const bodies = s.posts.map((p) => JSON.parse(p.body).content as string);
+  assert.ok(bodies.every((body) => body.length <= 2000));
+  assert.ok(hits.every((h) => bodies.some((body) => body.includes(h.ruleName))));
+  const delivered = s.results.flatMap((r) => r.hits);
+  assert.equal(delivered.length, hits.length);
+  assert.ok(s.results.every((r) => r.ok));
 });
 
 test('invalid url fails fast; token header; test message', async () => {

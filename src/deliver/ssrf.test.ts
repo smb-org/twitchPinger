@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkTargetUrl, isPublicAddress, safePost } from './ssrf.ts';
+import http from 'node:http';
+import { checkTargetUrl, isPublicAddress, safePost, trustedPost } from './ssrf.ts';
 
 test('isPublicAddress blocked', () => {
   for (const ip of ['0.1.2.3', '10.1.1.1', '100.64.0.1', '100.127.255.255', '127.0.0.1', '169.254.1.1', '172.16.0.1', '172.31.255.255',
     '192.0.0.1', '192.0.2.5', '192.88.99.1', '192.168.1.1', '198.18.0.1', '198.19.255.255', '198.51.100.7', '203.0.113.9',
     '224.0.0.1', '239.1.1.1', '240.0.0.1', '255.255.255.255', '::', '::1', '::ffff:10.0.0.1', '::ffff:7f00:1', '64:ff9b::10.0.0.1',
-    '100::1', '2001::1', '2001:1ff::1', '2001:db8::1', 'fc00::1', 'fd12::1', 'fe80::1', 'febf::1', 'ff02::1', '::127.0.0.1', '::7f00:1', '2002:7f00:1::1', 'fec0::1', 'feff::1', '64:ff9b:1::1', 'not-an-ip']) {
+    '100::1', '100:0:0:1::1', '2001::1', '2001:1ff::1', '2001:db8::1', '3fff::1', '3fff:fff::1', '5f00::1', 'fc00::1', 'fd12::1', 'fe80::1', 'febf::1', 'ff02::1', '::127.0.0.1', '::7f00:1', '2002:7f00:1::1', 'fec0::1', 'feff::1', '64:ff9b:1::1', 'not-an-ip']) {
     assert.equal(isPublicAddress(ip), false, ip);
   }
 });
@@ -43,4 +44,26 @@ test('safePost blocks private and mixed DNS answers', async () => {
   }
   await assert.rejects(safePost('https://127.0.0.1/x', init), { code: 'SSRF_BLOCKED' });
   await assert.rejects(safePost('http://example.org/x', init), { code: 'SSRF_BLOCKED' });
+});
+
+test('safePost timeout bounds a stalled DNS lookup', async () => {
+  const lookup = (() => {}) as never;
+  await assert.rejects(safePost('https://example.org/x', { ...init, timeoutMs: 20 }, { lookup }), { code: 'TIMEOUT' });
+});
+
+test('trustedPost timeout bounds a stalled DNS lookup', async () => {
+  const lookup = (() => {}) as never;
+  await assert.rejects(trustedPost('https://example.org/x', { ...init, timeoutMs: 20 }, { lookup }), { code: 'TIMEOUT' });
+});
+
+test('trustedPost timeout bounds a stalled response', async () => {
+  const server = http.createServer(() => {});
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  try {
+    await assert.rejects(trustedPost(`http://127.0.0.1:${address.port}/x`, { ...init, timeoutMs: 20 }), { code: 'TIMEOUT' });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
 });

@@ -32,6 +32,21 @@ export function createRepo(db: DatabaseSync) {
     db.exec('BEGIN');
     try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; }
   };
+  const writeRule = (r: RuleInput, now: number): Rule => {
+    run(`INSERT INTO rules (id, owner_id, name, enabled, matcher_json, sender_json, burst_json, cooldown_sec, channel_ids_json, target_ids_json, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, enabled = excluded.enabled, matcher_json = excluded.matcher_json,
+      sender_json = excluded.sender_json, burst_json = excluded.burst_json, cooldown_sec = excluded.cooldown_sec,
+      channel_ids_json = excluded.channel_ids_json, target_ids_json = excluded.target_ids_json, updated_at = excluded.updated_at`,
+      r.id, r.ownerId, r.name, r.enabled ? 1 : 0, JSON.stringify(r.matcher), JSON.stringify(r.sender), JSON.stringify(r.burst), r.cooldownSec,
+      JSON.stringify(r.channelIds), JSON.stringify(r.targetIds), now);
+    run('DELETE FROM last_fired WHERE rule_id = ?', r.id);
+    return { ...r, updatedAt: now };
+  };
+  const writeTarget = (t: Pick<Target, 'id' | 'ownerId' | 'kind' | 'name' | 'url' | 'token'>) => {
+    run(`INSERT INTO targets (id, owner_id, kind, name, url, token) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name, url = excluded.url, token = excluded.token, fail_count = CASE WHEN url = excluded.url THEN fail_count ELSE 0 END,
+      status = CASE WHEN url = excluded.url THEN status ELSE 'ok' END`, t.id, t.ownerId, t.kind, t.name, t.url, t.token);
+  };
 
   const repo = {
     tx,
@@ -58,6 +73,15 @@ export function createRepo(db: DatabaseSync) {
       });
     },
     unlockUser: (id: string) => { run('UPDATE users SET locked = 0 WHERE id = ?', id); },
+    unlockUserWithinChannelLimit(id: string, limit: number): boolean {
+      return tx(() => {
+        const count = n(`SELECT COUNT(DISTINCT uc.channel_id) n FROM user_channels uc
+          JOIN users u ON u.id = uc.user_id WHERE u.locked = 0 OR u.id = ?`, id);
+        if (count > limit) return false;
+        run('UPDATE users SET locked = 0 WHERE id = ?', id);
+        return true;
+      });
+    },
 
     // sessions
     insertSession: (idHash: string, userId: string, now: number, expiresAt: number, follows: FollowSuggestion[]) => {
@@ -117,16 +141,13 @@ export function createRepo(db: DatabaseSync) {
     listEnabledRules: () => all('SELECT r.* FROM rules r JOIN users u ON u.id = r.owner_id WHERE r.enabled = 1 AND u.locked = 0').map(rule),
     /** Insert or replace; a changed rule resets its cooldown state. */
     saveRule(r: RuleInput, now: number): Rule {
-      tx(() => {
-        run(`INSERT INTO rules (id, owner_id, name, enabled, matcher_json, sender_json, burst_json, cooldown_sec, channel_ids_json, target_ids_json, updated_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, enabled = excluded.enabled, matcher_json = excluded.matcher_json,
-          sender_json = excluded.sender_json, burst_json = excluded.burst_json, cooldown_sec = excluded.cooldown_sec,
-          channel_ids_json = excluded.channel_ids_json, target_ids_json = excluded.target_ids_json, updated_at = excluded.updated_at`,
-          r.id, r.ownerId, r.name, r.enabled ? 1 : 0, JSON.stringify(r.matcher), JSON.stringify(r.sender), JSON.stringify(r.burst), r.cooldownSec,
-          JSON.stringify(r.channelIds), JSON.stringify(r.targetIds), now);
-        run('DELETE FROM last_fired WHERE rule_id = ?', r.id);
+      return tx(() => writeRule(r, now));
+    },
+    createRuleWithinLimit(r: RuleInput, now: number, limit: number): Rule | undefined {
+      return tx(() => {
+        if (n('SELECT COUNT(*) n FROM rules WHERE owner_id = ?', r.ownerId) >= limit) return undefined;
+        return writeRule(r, now);
       });
-      return { ...r, updatedAt: now };
     },
     deleteRule: (id: string, ownerId: string) => Number(run('DELETE FROM rules WHERE id = ? AND owner_id = ?', id, ownerId).changes) > 0,
 
@@ -135,9 +156,14 @@ export function createRepo(db: DatabaseSync) {
     getTarget: (id: string) => { const r = get('SELECT * FROM targets WHERE id = ?', id); return r && target(r); },
     countTargets: (ownerId: string) => n('SELECT COUNT(*) n FROM targets WHERE owner_id = ?', ownerId),
     saveTarget(t: Pick<Target, 'id' | 'ownerId' | 'kind' | 'name' | 'url' | 'token'>) {
-      run(`INSERT INTO targets (id, owner_id, kind, name, url, token) VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
-        name = excluded.name, url = excluded.url, token = excluded.token, fail_count = CASE WHEN url = excluded.url THEN fail_count ELSE 0 END,
-        status = CASE WHEN url = excluded.url THEN status ELSE 'ok' END`, t.id, t.ownerId, t.kind, t.name, t.url, t.token);
+      writeTarget(t);
+    },
+    createTargetWithinLimit(t: Pick<Target, 'id' | 'ownerId' | 'kind' | 'name' | 'url' | 'token'>, limit: number): boolean {
+      return tx(() => {
+        if (n('SELECT COUNT(*) n FROM targets WHERE owner_id = ?', t.ownerId) >= limit) return false;
+        writeTarget(t);
+        return true;
+      });
     },
     /** Deletes the target and removes it from the owner's rules. */
     deleteTarget(id: string, ownerId: string): boolean {

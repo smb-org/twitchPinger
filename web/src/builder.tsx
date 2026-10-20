@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { MatchMode } from './api.ts';
-import { blockLabel, blocksToPattern, readable } from './form.ts';
+import { blockLabel, blocksToPattern, readable, wordRegexConversion } from './form.ts';
 import type { Block, BlockKind, Form } from './form.ts';
 import { val } from './ui.tsx';
 
@@ -12,6 +12,7 @@ export function MatcherBuilder({ f, set, error }: { f: Form; set: (p: Partial<Fo
   const [txt, setTxt] = useState('');
   const [focusId, setFocusId] = useState<number | null>(null);
   const [say, setSay] = useState('');
+  const [modeHint, setModeHint] = useState('');
   const box = useRef<HTMLDivElement>(null);
   const shown: Block[] = f.blocks ?? (f.pattern ? [{ id: 0, kind: 'raw', text: f.pattern }] : []);
 
@@ -46,6 +47,13 @@ export function MatcherBuilder({ f, set, error }: { f: Form; set: (p: Partial<Fo
   }
   function pickMode(m: MatchMode) {
     if (m === f.mode) return;
+    setModeHint('');
+    if (m === 'regex' && f.mode === 'word') {
+      const conversion = wordRegexConversion(f.pattern);
+      if (!conversion.pattern) { setModeHint(conversion.hint ?? ''); return; }
+      set({ mode: m, pattern: conversion.pattern, blocks: null });
+      return;
+    }
     set(m === 'regex' ? { mode: m, pattern: readable(f), blocks: null } : { mode: m, blocks: null });
   }
 
@@ -59,7 +67,7 @@ export function MatcherBuilder({ f, set, error }: { f: Form; set: (p: Partial<Fo
       {f.mode !== 'regex' ? (
         <label class="field">
           <span class="lbl">Text</span>
-          <input class="mono" value={f.pattern} onInput={(e) => set({ pattern: val(e), blocks: null })} placeholder="z. B. !play" autocomplete="off" spellcheck={false} />
+          <input class="mono" value={f.pattern} onInput={(e) => { setModeHint(''); set({ pattern: val(e), blocks: null }); }} placeholder="z. B. !play" autocomplete="off" spellcheck={false} />
         </label>
       ) : (
         <>
@@ -88,6 +96,7 @@ export function MatcherBuilder({ f, set, error }: { f: Form; set: (p: Partial<Fo
           ? <input class="mono" value={f.pattern} onInput={(e) => set({ pattern: val(e), blocks: null })} autocomplete="off" spellcheck={false} aria-describedby="rx-err" />
           : <output class="mono expr">{readable(f) || '–'}</output>}
       </label>
+      {modeHint && <p class="small muted" role="status">{modeHint}</p>}
       <p id="rx-err" class="err" aria-live="polite">{error}</p>
 
       <label class="switch">

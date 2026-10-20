@@ -16,6 +16,8 @@ const MODES: MatchMode[] = ['contains', 'word', 'prefix', 'regex'];
 const LOGIN_RE = /^[a-z0-9_]{3,25}$/;
 const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
 const DAY = 86_400_000;
+const HEALTH_DISCONNECT_GRACE_MS = 2 * 60_000;
+const HEALTH_JOIN_GRACE_MS = 60_000;
 
 class ApiError extends Error {
   status: number; code: string; field?: string;
@@ -29,6 +31,7 @@ export function createApi(deps: ApiDeps) {
   const origin = new URL(config.publicUrl).origin;
   const redirectUri = `${config.publicUrl}/api/auth/callback`;
   const cookieBase = { httpOnly: true, secure: !config.insecureCookies, sameSite: 'Lax' as const, path: '/' };
+  let incompleteJoinSince: number | null = null;
 
   const app = new Hono<Env>().basePath('/api');
 
@@ -66,11 +69,20 @@ export function createApi(deps: ApiDeps) {
     if (!b || typeof b !== 'object' || Array.isArray(b)) throw new ApiError(400, 'bad_json', 'Ungültige Anfrage.');
     return b;
   }
-  const changed = () => deps.onConfigChanged();
+  const changed = (immediate = false) => deps.onConfigChanged(immediate);
   const notFound = (what: string) => new ApiError(404, 'not_found', `${what} nicht gefunden.`);
 
   // ---- health & auth ----
-  app.get('/health', (c) => c.json({ ok: true, reader: reader.health() }));
+  app.get('/health', (c) => {
+    const h = reader.health();
+    const t = now();
+    if (h.connected && h.desired > h.joined) incompleteJoinSince ??= t;
+    else incompleteJoinSince = null;
+    const disconnectedTooLong = !h.connected && t - h.since > HEALTH_DISCONNECT_GRACE_MS;
+    const joinShortfallTooLong = incompleteJoinSince !== null && t - incompleteJoinSince > HEALTH_JOIN_GRACE_MS;
+    const ok = !disconnectedTooLong && !joinShortfallTooLong;
+    return c.json({ ok, reader: h }, ok ? 200 : 503);
+  });
 
   app.get('/auth/login', (c) => {
     const invite = (c.req.query('invite') ?? '').slice(0, 200) || null;
@@ -106,11 +118,16 @@ export function createApi(deps: ApiDeps) {
       repo.createUser({ id: tu.id, login: tu.login, displayName: tu.displayName, isAdmin: true, invitedBy: null, now: t });
       isNew = true;
     } else {
+      const rejectNewLogin = (reason: string) => {
+        console.warn(`Rejected Twitch login: user id=${tu.id} login=${tu.login} reason=${reason}`);
+        return fail(reason);
+      };
+      if (!st.invite) return rejectNewLogin('no_invite');
       const inv = st.invite ? repo.getInviteByHash(sha256(st.invite)) : undefined;
-      if (!inv || inv.revoked) return fail('invite_invalid');
-      if (inv.usedBy) return fail('invite_used');
-      if (inv.expiresAt <= t) return fail('invite_expired');
-      if (repo.countUsers() >= config.limits.MAX_ACCOUNTS) return fail('accounts_full');
+      if (!inv || inv.revoked) return rejectNewLogin('invite_invalid');
+      if (inv.usedBy) return rejectNewLogin('invite_used');
+      if (inv.expiresAt <= t) return rejectNewLogin('invite_expired');
+      if (repo.countUsers() >= config.limits.MAX_ACCOUNTS) return rejectNewLogin('accounts_full');
       repo.tx(() => {
         repo.createUser({ id: tu.id, login: tu.login, displayName: tu.displayName, isAdmin: false, invitedBy: inv.createdBy, now: t });
         repo.markInviteUsed(inv.id, tu.id, t);
@@ -244,9 +261,10 @@ export function createApi(deps: ApiDeps) {
 
   app.post('/rules', async (c) => {
     const u = me(c);
-    if (repo.countRules(u.id) >= config.limits.MAX_RULES_PER_USER) throw new ApiError(409, 'limit_rules', `Du kannst höchstens ${config.limits.MAX_RULES_PER_USER} Regeln anlegen.`);
-    const rule: Rule = repo.saveRule(parseRule(await body(c), u, randomId(), true), now());
-    changed();
+    const input = parseRule(await body(c), u, randomId(), true);
+    const rule: Rule | undefined = repo.createRuleWithinLimit(input, now(), config.limits.MAX_RULES_PER_USER);
+    if (!rule) throw new ApiError(409, 'limit_rules', `Du kannst höchstens ${config.limits.MAX_RULES_PER_USER} Regeln anlegen.`);
+    changed(!rule.enabled);
     return c.json({ rule }, 201);
   });
 
@@ -255,13 +273,13 @@ export function createApi(deps: ApiDeps) {
     const old = repo.getRule(c.req.param('id'));
     if (!old || old.ownerId !== u.id) throw notFound('Regel');
     const rule = repo.saveRule(parseRule(await body(c), u, old.id, old.enabled), now());
-    changed();
+    changed(!rule.enabled);
     return c.json({ rule });
   });
 
   app.delete('/rules/:id', (c) => {
     if (!repo.deleteRule(c.req.param('id'), me(c).id)) throw notFound('Regel');
-    changed();
+    changed(true);
     return c.json({ ok: true });
   });
 
@@ -298,13 +316,12 @@ export function createApi(deps: ApiDeps) {
     const b = await body(c);
     if (b.kind !== 'discord' && b.kind !== 'ntfy') throw bad('kind', 'Ungültige Zielart.');
     const name = parseName(b.name);
-    if (repo.countTargets(u.id) >= MAX_TARGETS_PER_USER) throw new ApiError(409, 'limit_targets', `Du kannst höchstens ${MAX_TARGETS_PER_USER} Ziele anlegen.`);
     let url = typeof b.url === 'string' ? b.url.trim() : '';
     if (!url && b.kind === 'ntfy') url = `${config.ntfyBaseUrl}/mn-${topic()}`;
     else if (!url) throw bad('url', 'Die URL fehlt.');
     else await checkUrl(b.kind, url);
     const t = { id: randomId(), ownerId: u.id, kind: b.kind as TargetKind, name, url, token: null };
-    repo.saveTarget(t);
+    if (!repo.createTargetWithinLimit(t, MAX_TARGETS_PER_USER)) throw new ApiError(409, 'limit_targets', `Du kannst höchstens ${MAX_TARGETS_PER_USER} Ziele anlegen.`);
     return c.json({ target: targetDto({ ...t, failCount: 0, status: 'ok' }) }, 201);
   });
 
@@ -374,7 +391,12 @@ export function createApi(deps: ApiDeps) {
       if (action === 'lock') {
         if (target.id === me(c).id || target.isAdmin) throw new ApiError(400, 'cannot_lock_admin', 'Admin-Konten können nicht gesperrt werden.');
         repo.lockUser(id);
-      } else repo.unlockUser(id);
+        changed(true);
+        return c.json({ ok: true });
+      }
+      if (!repo.unlockUserWithinChannelLimit(id, config.limits.MAX_CHANNELS_TOTAL)) {
+        throw new ApiError(409, 'limit_total_channels', 'Der Dienst beobachtet bereits die maximale Zahl an Channels.');
+      }
       changed();
       return c.json({ ok: true });
     });
