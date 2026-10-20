@@ -6,6 +6,7 @@ import { MatcherBuilder } from '../builder.tsx';
 import { applyMarbles, emptyForm, fromRule, toBody, toRule, validate } from '../form.ts';
 import type { Form } from '../form.ts';
 import { PreviewPanel, analyse, usePreview } from '../preview.tsx';
+import { RuleTestButton } from '../rule-test.tsx';
 import { Link, navigate, useLocation } from '../router.tsx';
 import { ConfirmButton, Err, LoadError, hhmm, toast, useLoad, useTitle, val } from '../ui.tsx';
 
@@ -28,6 +29,7 @@ export function RuleEditor({ id }: { id: string | null }) {
   }, [id]);
 
   const [form, setForm] = useState<Form | null>(null);
+  const [savedForm, setSavedForm] = useState<Form | null>(null);
   const [srv, setSrv] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<'rule' | 'preview'>('rule');
@@ -40,7 +42,7 @@ export function RuleEditor({ id }: { id: string | null }) {
   useEffect(() => {
     const d = base.data;
     if (!d || form) return;
-    if (id) { if (existing) setForm(fromRule(existing)); return; }
+    if (id) { if (existing) { const saved = fromRule(existing); setForm(saved); setSavedForm(saved); } return; }
     const f = { ...emptyForm(), channelIds: d.channels.map((c) => c.id), targetIds: d.targets.map((t) => t.id) };
     setForm(q.get('vorlage') === 'marbles' ? applyMarbles(f) : f);
   }, [base.data]);
@@ -89,6 +91,7 @@ export function RuleEditor({ id }: { id: string | null }) {
       const body = toBody(form!);
       if (id) {
         await api('PUT', `/rules/${encodeURIComponent(id)}`, body);
+        setSavedForm(form!);
         toast('Gespeichert, Fenster zurückgesetzt');
       } else {
         const r = await api<{ rule: Rule }>('POST', '/rules', body);
@@ -108,6 +111,7 @@ export function RuleEditor({ id }: { id: string | null }) {
   }
 
   const hasPattern = !!form.pattern;
+  const testDirty = !!id && !!savedForm && JSON.stringify(form) !== JSON.stringify(savedForm);
   const sentence = hasPattern ? describeRule(rule, selLogins) : 'Gib eine Bedingung ein, dann steht hier, was die Regel meldet.';
   const tabCount = pv.messages ? ` (${an.hits})` : '';
 
@@ -116,6 +120,7 @@ export function RuleEditor({ id }: { id: string | null }) {
       <header class="page-head">
         <h1>{id ? 'Regel bearbeiten' : 'Neue Regel'}</h1>
         <div class="actions">
+          {id && <RuleTestButton id={id} targets={base.data?.targets} disabledReason={saving ? 'Regel wird gespeichert…' : testDirty ? 'Änderungen erst speichern.' : undefined} />}
           <button type="button" class="btn ghost" onClick={() => upd(applyMarbles(form))}>Marbles-Vorlage</button>
           <Link href="/" class="btn ghost">Zurück</Link>
         </div>

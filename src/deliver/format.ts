@@ -5,10 +5,11 @@ export interface Formatted { title: string; text: string; url: string }
 const head = (h: Hit) => `${h.sample.displayName}: ${h.sample.text}`;
 const url = (h: Hit) => `https://twitch.tv/${h.channel}`;
 
-export function formatSingle(hit: Hit): Formatted {
+export function formatSingle(hit: Hit, isTest = false): Formatted {
+  const marker = isTest ? '[Test] ' : '';
   return {
-    title: `${hit.channel}: ${hit.ruleName}`,
-    text: `Regel: ${hit.ruleName}\nChannel: ${hit.channel}\nTreffer: ${hit.count}\n${head(hit)}`,
+    title: `${marker}${hit.channel}: ${hit.ruleName}`,
+    text: `${isTest ? '[Test]\n' : ''}Regel: ${hit.ruleName}\nChannel: ${hit.channel}\nTreffer: ${hit.count}\n${head(hit)}`,
     url: url(hit),
   };
 }

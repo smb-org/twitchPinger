@@ -134,6 +134,9 @@ table.rules { width: 100%; border-collapse: collapse; }
 .rules td { padding: 6px 12px 6px 0; height: 52px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .rules .sub { display: none; font-size: 0.8125rem; color: var(--muted); }
 .rule-name { display: inline-block; padding: 8px 0; }
+.rule-test { display: flex; flex-direction: column; align-items: flex-start; width: 180px; }
+.rule-test-hint { display: block; width: 180px; min-height: 1.2em; line-height: 1.2; font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rules th:last-child, .rules td.test-action { width: 180px; min-width: 180px; }
 @keyframes glut { from { background-color: rgb(242 169 59 / 0.24); } to { background-color: transparent; } }
 @keyframes glut-rm { from, to { background-color: rgb(242 169 59 / 0.24); } }
 tr.glut > td { animation: glut 1.2s ease-out; }

@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { ChatMessage, ReaderHealth, TargetKind } from '../types.ts';
+import type { ChatMessage, Hit, ReaderHealth, Target, TargetKind } from '../types.ts';
 import type { Repo } from '../db/repo.ts';
 import type { Twitch } from './twitch.ts';
 import type { DiscordOAuth } from './discord.ts';
@@ -29,6 +29,8 @@ export type RegexResult = { ok: true } | { ok: false; error: string };
 export interface DelivererPort {
   /** Sends a test notification to the target (looked up by the deliverer or passed in full). */
   sendTest(target: { id: string; ownerId: string; kind: TargetKind; url: string; token: string | null; name: string }): Promise<{ ok: boolean; error?: string; errorCode?: number }>;
+  /** Sends a synthetic rule hit directly through normal formatting and delivery, without recording delivery state. */
+  sendRuleTest(target: Target, hit: Hit): Promise<{ ok: boolean; error?: string; errorCode?: number }>;
 }
 
 export interface ApiDeps {

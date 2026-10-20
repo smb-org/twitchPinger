@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { openDb } from '../db/db.ts';
 import { createRepo } from '../db/repo.ts';
 import { LIMITS_DEFAULTS } from '../types.ts';
-import type { ChatMessage, ReaderHealth } from '../types.ts';
+import type { ChatMessage, Hit, ReaderHealth, Target } from '../types.ts';
 import { createApi } from './app.ts';
 import { createTwitch } from './twitch.ts';
 import { createDiscord } from './discord.ts';
@@ -63,6 +63,7 @@ function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string; 
   let readerHealth: ReaderHealth = { connected: true, since: 1, joined: 2, desired: 2, lastMessageAt: null };
   const messages: ChatMessage[] = [{ channel: 'marbles_one', channelId: 'ch-marbles_one', userId: 'x9', login: 'viewer', displayName: 'Viewer', text: '!play', badges: ['vip'], sentAt: 5, receivedAt: 6 }];
   const tests: any[] = [];
+  const ruleTests: { target: Target; hit: Hit }[] = [];
   const config: ApiConfig = {
     publicUrl: ORIGIN, sessionSecret: 's'.repeat(32), adminTwitchUserId: opts.admin ?? '1', ntfyBaseUrl: 'https://ntfy.example', insecureCookies: true, discordAvailable: opts.discord ?? false,
     limits: { ...LIMITS_DEFAULTS, ...over },
@@ -72,7 +73,10 @@ function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string; 
     twitch: createTwitch({ clientId: 'cid', clientSecret: 'sec', authBase: 'https://auth.test', helixBase: 'https://auth.test/helix', fetch: fakeFetch() }),
     discord: createDiscord({ clientId: opts.discord ? 'discord-client' : '', clientSecret: opts.discord ? 'discord-secret' : '', botToken: opts.discord ? 'discord-bot-token' : '', baseUrl: 'https://discord.test/discord', fetch: fakeDiscordFetch() }),
     reader: { health: () => readerHealth, recent: (l) => (l === 'marbles_one' ? messages : []) },
-    deliverer: { sendTest: async (tg) => { tests.push(tg); return { ok: true }; } },
+    deliverer: {
+      sendTest: async (tg: { id: string; ownerId: string; kind: Target['kind']; url: string; token: string | null; name: string }) => { tests.push(tg); return { ok: true }; },
+      sendRuleTest: async (tg: Target, hit: Hit) => { ruleTests.push({ target: tg, hit }); return tg.id === 't2' ? { ok: false, error: 'HTTP 500' } : { ok: true }; },
+    },
     validateRegex: (p) => { try { new RegExp(p); return /\(\?<?[=!]/.test(p) ? { ok: false, error: 'lookaround' } : { ok: true }; } catch (e) { return { ok: false, error: String(e) }; } },
     checkTargetUrl: (_k, url) => (url.startsWith('https://') ? null : 'Nur https erlaubt.'),
     onConfigChanged: (immediate) => { changes++; if (immediate) immediateChanges++; },
@@ -81,7 +85,7 @@ function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string; 
   };
   const app = createApi(deps);
   const api = {
-    app, repo, deps, tests, advance: (ms: number) => { t += ms; }, setReaderHealth: (h: typeof readerHealth) => { readerHealth = h; },
+    app, repo, deps, tests, ruleTests, advance: (ms: number) => { t += ms; }, setReaderHealth: (h: typeof readerHealth) => { readerHealth = h; },
     get changes() { return changes; }, get immediateChanges() { return immediateChanges; },
     async req(path: string, o: { method?: string; cookie?: string; origin?: string | null; body?: unknown } = {}) {
       const headers: Record<string, string> = {};
@@ -388,6 +392,83 @@ test('rules: create/update/delete, validation errors, limit, ownership, updatedA
   const v = await j(await a.req('/rules/validate-regex', { method: 'POST', cookie: alice, body: { pattern: '(?=a)' } }));
   assert.equal(v.ok, false);
   assert.equal((await j(await a.req('/rules/validate-regex', { method: 'POST', cookie: alice, body: { pattern: 'a+' } }))).ok, true);
+});
+
+test('rule test sends a synthetic hit to owned targets without changing rule state or history', async () => {
+  const a = setup();
+  const { admin, alice } = await member(a);
+  const ch = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_one' } }))).channel;
+  for (const [id, kind] of [['t1', 'ntfy'], ['t2', 'discord']] as const) {
+    a.repo.saveTarget({ id, ownerId: '2', kind, name: id, url: kind === 'discord' ? 'https://discord.com/api/webhooks/123/secret' : 'https://ntfy.example/topic', token: null });
+  }
+  a.repo.recordDeliveryResult('t2', false);
+  a.repo.recordDeliveryResult('t2', false);
+  const rule = (await j(await a.req('/rules', { method: 'POST', cookie: alice, body: {
+    name: 'Marbles Play', matcher: { mode: 'word', pattern: '!play' }, channelIds: [ch.id], targetIds: ['t1', 't2'],
+    burst: { threshold: 5, windowSec: 30, countBy: 'messages' },
+  } }))).rule;
+  a.repo.setLastFired(rule.id, ch.id, 950_000);
+  a.repo.recordHit({ ruleId: rule.id, channelId: ch.id, count: 3, firedAt: 950_000, sentTs: 949_000 });
+  const lastPingsBefore = a.repo.lastPings('2', 10);
+  const ruleBefore = a.repo.getRule(rule.id);
+  const targetBefore = ['t1', 't2'].map((id) => a.repo.getTarget(id));
+
+  assert.equal((await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: admin })).status, 404);
+  assert.equal((await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice, origin: 'https://evil.example' })).status, 403);
+  const response = await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual((await j(response)).results, [
+    { targetId: 't1', kind: 'ntfy', ok: true },
+    { targetId: 't2', kind: 'discord', ok: false, error: 'HTTP 500' },
+  ]);
+  assert.equal(a.ruleTests.length, 2);
+  const { hit } = a.ruleTests[0];
+  assert.deepEqual([hit.ruleId, hit.ruleName, hit.ownerId, hit.channelId, hit.channel, hit.count, hit.firedAt], [rule.id, 'Marbles Play', '2', ch.id, 'marbles_one', 5, 1_000_000]);
+  assert.deepEqual([hit.sample.displayName, hit.sample.text, hit.sample.sentAt, hit.sample.receivedAt], ['Test', '!play', 1_000_000, 1_000_000]);
+  assert.equal(a.repo.getRule(rule.id)!.updatedAt, ruleBefore!.updatedAt);
+  assert.deepEqual(a.repo.getRule(rule.id)!.burst, ruleBefore!.burst);
+  assert.equal(a.repo.getLastFired(rule.id, ch.id), 950_000);
+  assert.deepEqual(a.repo.lastPings('2', 10), lastPingsBefore);
+  assert.deepEqual(['t1', 't2'].map((id) => a.repo.getTarget(id)), targetBefore);
+});
+
+test('rule test is limited to once per rule every ten seconds', async () => {
+  const a = setup();
+  const { alice } = await member(a);
+  a.repo.saveTarget({ id: 't1', ownerId: '2', kind: 'ntfy', name: 'phone', url: 'https://ntfy.example/topic', token: null });
+  const rule = (await j(await a.req('/rules', { method: 'POST', cookie: alice, body: {
+    name: 'Pattern', matcher: { mode: 'regex', pattern: 'play\\s+now' }, targetIds: ['t1'],
+  } }))).rule;
+
+  assert.equal((await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice })).status, 200);
+  const limited = await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice });
+  assert.equal(limited.status, 429);
+  const rateError = await j(limited);
+  assert.match(rateError.error.message, /alle 10 Sekunden/);
+  assert.equal(rateError.error.retryAfterMs, 10_000);
+  assert.equal(a.ruleTests.length, 1);
+  a.advance(9_999);
+  const almostReady = await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice });
+  assert.equal(almostReady.status, 429);
+  assert.equal((await j(almostReady)).error.retryAfterMs, 1);
+  a.advance(1);
+  assert.equal((await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice })).status, 200);
+  assert.equal(a.ruleTests.length, 2);
+  assert.equal(a.ruleTests[0].hit.sample.text, 'Muster: /play\\s+now/');
+  assert.equal(a.ruleTests[0].hit.channel, 'kein-channel');
+});
+
+test('rule test without targets returns a German 400 and sends nothing', async () => {
+  const a = setup();
+  const { alice } = await member(a);
+  const rule = (await j(await a.req('/rules', { method: 'POST', cookie: alice, body: {
+    name: 'Ohne Ziel', matcher: { mode: 'contains', pattern: 'x' }, targetIds: [],
+  } }))).rule;
+  const response = await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice });
+  assert.equal(response.status, 400);
+  assert.match((await j(response)).error.message, /kein Ziel/);
+  assert.equal(a.ruleTests.length, 0);
 });
 
 test('concurrent rule creation keeps the per-user limit atomic', async () => {

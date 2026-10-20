@@ -6,11 +6,13 @@ export class ApiError extends Error {
   status: number;
   code: string;
   field?: string;
-  constructor(status: number, code: string, message: string, field?: string) {
+  retryAfterMs?: number;
+  constructor(status: number, code: string, message: string, field?: string, retryAfterMs?: number) {
     super(message);
     this.status = status;
     this.code = code;
     this.field = field;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -34,7 +36,7 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
       meStore.set(null);
       navigate('/login', true);
     }
-    throw new ApiError(res.status, e?.code ?? `http_${res.status}`, e?.message ?? `Fehler (${res.status}).`, e?.field);
+    throw new ApiError(res.status, e?.code ?? `http_${res.status}`, e?.message ?? `Fehler (${res.status}).`, e?.field, e?.retryAfterMs);
   }
   return data as T;
 }

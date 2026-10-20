@@ -53,12 +53,9 @@ test('Discord target query does not expose the feature when /me says it is unava
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await loginAs(ctx, '8003', 'discord_hidden');
   const page = await ctx.newPage();
-  await page.route('**/api/me', async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.discordDm = { available: false, username: null };
-    await route.fulfill({ response, json: body });
-  });
+  const me = await (await ctx.request.get('/api/me')).json();
+  me.discordDm = { available: false, username: null };
+  await page.route('**/api/me', (route) => route.fulfill({ json: me }));
   await page.goto('/targets?target=discord_dm');
   await expect(page.getByRole('button', { name: 'Discord-Direktnachricht' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Mit Discord verbinden' })).toHaveCount(0);

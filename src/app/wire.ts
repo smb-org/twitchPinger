@@ -192,7 +192,10 @@ export function createService(deps: ServiceDeps) {
   const api = createApi({
     config, db: deps.db, repo, twitch, discord, now,
     reader,
-    deliverer: { sendTest: (t) => deliverer.sendTest(withToken(t) as Target) },
+    deliverer: {
+      sendTest: (t) => deliverer.sendTest(withToken(t) as Target),
+      sendRuleTest: (t, hit) => deliverer.sendRuleTest(withToken(t), hit),
+    },
     validateRegex,
     checkTargetUrl: (kind, url) => { const r = checkTargetUrl(kind, url); return r.ok ? null : r.error; },
     onConfigChanged,

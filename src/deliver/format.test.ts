@@ -9,6 +9,14 @@ test('single', () => {
   assert.match(f.text, /Bob: !play/);
 });
 
+test('test single keeps real-hit formatting and marks both title and content', () => {
+  const f = (formatSingle as any)(hit(), true);
+  assert.equal(f.title, '[Test] chan: Play');
+  assert.match(f.text, /^\[Test\]\nRegel: Play/);
+  assert.match(f.text, /Bob: !play/);
+  assert.equal(f.url, 'https://twitch.tv/chan');
+});
+
 test('batch lists further hits without samples', () => {
   const f = formatBatch([hit(), hit({ ruleName: 'B', channel: 'x', count: 3 }), hit({ ruleName: 'C', channel: 'y', count: 2 })]);
   assert.match(f.text, /\+2 weitere:/);

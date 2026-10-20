@@ -2,7 +2,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import type { Badge, MatchMode, Rule, Target, TargetKind } from '../types.ts';
+import type { Badge, ChatMessage, Hit, MatchMode, Rule, Target, TargetKind } from '../types.ts';
 import type { RuleInput, UserRow } from '../db/repo.ts';
 import type { ApiDeps } from './deps.ts';
 import { DISCORD_STATE_COOKIE, SESSION_COOKIE, SESSION_TTL_MS, STATE_COOKIE, hashSessionId, newSessionId, randomId, sha256, signDiscordState, signState, verifyDiscordState, verifyState } from './session.ts';
@@ -20,8 +20,8 @@ const HEALTH_DISCONNECT_GRACE_MS = 2 * 60_000;
 const HEALTH_JOIN_GRACE_MS = 60_000;
 
 class ApiError extends Error {
-  status: number; code: string; field?: string;
-  constructor(status: number, code: string, message: string, field?: string) { super(message); this.status = status; this.code = code; this.field = field; }
+  status: number; code: string; field?: string; retryAfterMs?: number;
+  constructor(status: number, code: string, message: string, field?: string, retryAfterMs?: number) { super(message); this.status = status; this.code = code; this.field = field; this.retryAfterMs = retryAfterMs; }
 }
 const bad = (field: string, message: string) => new ApiError(400, 'validation', message, field);
 
@@ -31,12 +31,13 @@ export function createApi(deps: ApiDeps) {
   const origin = new URL(config.publicUrl).origin;
   const redirectUri = `${config.publicUrl}/api/auth/callback`;
   const cookieBase = { httpOnly: true, secure: !config.insecureCookies, sameSite: 'Lax' as const, path: '/' };
+  const ruleTestAt = new Map<string, number>();
   let incompleteJoinSince: number | null = null;
 
   const app = new Hono<Env>().basePath('/api');
 
   app.onError((err, c) => {
-    if (err instanceof ApiError) return c.json({ error: { code: err.code, message: err.message, ...(err.field ? { field: err.field } : {}) } }, err.status as 400);
+    if (err instanceof ApiError) return c.json({ error: { code: err.code, message: err.message, ...(err.field ? { field: err.field } : {}), ...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}) } }, err.status as 400);
     console.error('api error', err);
     return c.json({ error: { code: 'internal', message: 'Interner Fehler.' } }, 500);
   });
@@ -318,6 +319,34 @@ export function createApi(deps: ApiDeps) {
     const rule = repo.saveRule(parseRule(await body(c), u, old.id, old.enabled), now());
     changed(!rule.enabled);
     return c.json({ rule });
+  });
+
+  app.post('/rules/:id/test', async (c) => {
+    const rule = repo.getRule(c.req.param('id'));
+    if (!rule || rule.ownerId !== me(c).id) throw notFound('Regel');
+    const targets = rule.targetIds.map((id) => repo.getTarget(id)).filter((t): t is Target => !!t && t.ownerId === rule.ownerId);
+    if (!targets.length) throw new ApiError(400, 'no_targets', 'Für diese Regel ist kein Ziel ausgewählt.');
+
+    const firedAt = now();
+    for (const [id, ts] of ruleTestAt) if (firedAt - ts >= 10_000) ruleTestAt.delete(id);
+    const lastTestAt = ruleTestAt.get(rule.id);
+    if (lastTestAt !== undefined && firedAt - lastTestAt < 10_000) throw new ApiError(429, 'test_rate_limited', 'Diese Regel kann nur alle 10 Sekunden getestet werden.', undefined, 10_000 - (firedAt - lastTestAt));
+    ruleTestAt.set(rule.id, firedAt);
+
+    const channels = new Map(repo.listUserChannels(rule.ownerId).map((channel) => [channel.id, channel]));
+    const channel = rule.channelIds.map((id) => channels.get(id)).find((candidate) => candidate !== undefined);
+    const channelLogin = channel?.login ?? 'kein-channel';
+    const sampleText = rule.matcher.mode === 'regex' ? `Muster: /${rule.matcher.pattern}/` : rule.matcher.pattern;
+    const sample: ChatMessage = {
+      channel: channelLogin, channelId: channel?.id ?? '', userId: 'test', login: 'test', displayName: 'Test',
+      text: sampleText, badges: [], sentAt: firedAt, receivedAt: firedAt,
+    };
+    const hit: Hit = { ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: sample.channelId, channel: channelLogin, count: rule.burst.threshold, sample, firedAt };
+    const results = await Promise.all(targets.map(async (target) => {
+      const result = await deps.deliverer.sendRuleTest(target, hit).catch(() => ({ ok: false, error: 'Zustellung fehlgeschlagen.' }));
+      return { targetId: target.id, kind: target.kind, ok: result.ok, ...(result.error ? { error: result.error } : {}) };
+    }));
+    return c.json({ results });
   });
 
   app.delete('/rules/:id', (c) => {

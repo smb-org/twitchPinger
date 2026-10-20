@@ -83,6 +83,24 @@ test('window semantics', async () => {
   assert.equal(posts.length, 4);
 });
 
+test('rule test sends immediately through formatting without opening a batch or recording a result', async () => {
+  const s = setup();
+  const result = await (s.d as any).sendRuleTest(target(), hit({ ruleName: 'Pattern' }));
+  assert.deepEqual(result, { ok: true });
+  assert.equal(s.posts.length, 1);
+  assert.equal(s.posts[0]!.headers.Title, '[Test] chan: Pattern');
+  assert.match(s.posts[0]!.body, /^\[Test\]\nRegel: Pattern/);
+  assert.equal(s.results.length, 0);
+  s.advance(10_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(s.posts.length, 1);
+});
+
+test('rule test maps raw transport errors to a German delivery hint', async () => {
+  const s = setup([new Error('getaddrinfo ENOTFOUND bad.example'), new Error('getaddrinfo ENOTFOUND bad.example')]);
+  assert.deepEqual(await s.d.sendRuleTest(target(), hit()), { ok: false, error: 'Verbindung zum Ziel fehlgeschlagen.' });
+});
+
 test('retry once on 5xx and network error, not on 4xx', async () => {
   let s = setup([500, 200]);
   s.d.deliver(hit(), [target()]);
@@ -124,7 +142,7 @@ test('retries 429 once when Retry-After is within the five-minute limit', async 
   assert.equal(s.posts.length, 1);
   assert.equal(s.results[0]!.ok, false);
   assert.equal(s.results[0]!.status, 429);
-  assert.match(s.results[0]!.error ?? '', /Retry-After.*five-minute/i);
+  assert.match(s.results[0]!.error ?? '', /mehr als fünf Minuten/);
 
   s = setup([{ status: 429, retryAfter: '120' }, 200]);
   s.d.deliver(hit(), [target()]);
@@ -148,7 +166,7 @@ test('Discord DM does not retry early when Retry-After exceeds the five-minute l
   assert.equal(s.discordPosts.length, 1);
   assert.equal(s.results[0]!.ok, false);
   assert.equal(s.results[0]!.status, 429);
-  assert.match(s.results[0]!.error ?? '', /Retry-After.*five-minute/i);
+  assert.match(s.results[0]!.error ?? '', /mehr als fünf Minuten/);
 });
 
 test('retry re-resolves destination and drops a deleted or rotated target', async () => {
@@ -236,6 +254,10 @@ test('Discord DM maps error 50007 to the German hint and returns it for a test p
   const t = target({ id: 'dm-target', ownerId: 'user-1', kind: 'discord_dm', url: '' });
   const r = await s.d.sendTest(t);
   assert.deepEqual(r, { ok: false, error: 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.', errorCode: 50007 });
+
+  const ruleTest = setup([], { discordLink: { discordUserId: 'discord-user', channelId: 'dm-1' }, discordStatuses: [blocked] });
+  assert.deepEqual(await ruleTest.d.sendRuleTest(t, hit()), { ok: false, error: 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.', errorCode: 50007 });
+  assert.equal(ruleTest.results.length, 0);
 
   const second = setup([], { discordLink: { discordUserId: 'discord-user', channelId: 'dm-1' }, discordStatuses: [blocked] });
   second.d.deliver(hit(), [t]);

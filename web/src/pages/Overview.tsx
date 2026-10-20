@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { api, meStore } from '../api.ts';
-import type { Channel, OverviewRule, Ping } from '../api.ts';
+import type { Channel, OverviewRule, Ping, TargetDto } from '../api.ts';
 import { Link } from '../router.tsx';
+import { RuleTestButton } from '../rule-test.tsx';
 import { Dot, LoadError, PageHead, Placeholder, ago, hhmm, toast, useLoad, useTitle } from '../ui.tsx';
 
 interface Data { rules: OverviewRule[]; lastPings: Ping[] }
@@ -42,6 +43,7 @@ export function Overview() {
   }, [data]);
 
   const chData = useLoad(() => api<{ channels: Channel[] }>('GET', '/channels'), []).data;
+  const targetData = useLoad(() => api<{ targets: TargetDto[] }>('GET', '/targets'), []).data;
   const logins = new Map((chData?.channels ?? []).map((c) => [c.id, c.login]));
   useEffect(() => { if (error && !data) toast(error.message, 'error', { label: 'Wiederholen', run: reload }); }, [error]);
 
@@ -68,7 +70,7 @@ export function Overview() {
           {rules && rules.length > 0 && (
             <table class="rules">
               <thead>
-                <tr><th>Name</th><th class="hide-sm">Channels</th><th>Status</th><th>Zuletzt ausgelöst</th><th class="hide-sm">Cooldown bis</th></tr>
+                <tr><th>Name</th><th class="hide-sm">Channels</th><th>Status</th><th>Zuletzt ausgelöst</th><th class="hide-sm">Cooldown bis</th><th>Aktion</th></tr>
               </thead>
               <tbody>
                 {rules.map((r) => {
@@ -84,6 +86,7 @@ export function Overview() {
                       <td><Dot kind={s.kind} /> {s.text}</td>
                       <td class="mono">{ts ? ago(ts) : 'nie'}</td>
                       <td class="mono hide-sm">{r.cooldownUntil ? `ruht bis ${hhmm(r.cooldownUntil)}` : '–'}</td>
+                      <td class="test-action"><RuleTestButton id={r.id} targets={targetData?.targets} /></td>
                     </tr>
                   );
                 })}

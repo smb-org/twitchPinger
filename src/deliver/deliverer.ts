@@ -1,5 +1,5 @@
 import type { Hit, Target } from '../types.ts';
-import { formatBatch, toDiscord, toNtfy } from './format.ts';
+import { formatBatch, formatSingle, toDiscord, toNtfy } from './format.ts';
 import type { Formatted } from './format.ts';
 import { sharedDiscordRequestQueue } from './discord-queue.ts';
 import type { DiscordRequestQueue } from './discord-queue.ts';
@@ -30,7 +30,7 @@ export interface DelivererDeps {
 const WINDOW_MS = 10_000;
 const TIMEOUT_MS = 5_000;
 const MAX_RETRY_AFTER_MS = 300_000;
-const RETRY_AFTER_TOO_LONG = 'Retry-After exceeds five-minute retry limit';
+const RETRY_AFTER_TOO_LONG = 'Der Zustelldienst verlangt eine Wartezeit von mehr als fünf Minuten.';
 const TEST_TEXT = 'Test von twitchPinger – wenn du das liest, kommt alles an.';
 const DISCORD_API = 'https://discord.com/api/v10';
 const DISCORD_DM_HINT = 'Discord lässt den Bot dir nicht schreiben. Tritt einem Server mit dem Bot bei oder erlaube DMs.';
@@ -70,7 +70,10 @@ export function createDeliverer(deps: DelivererDeps) {
       return { ok: false, status: r.status, error: `HTTP ${r.status}`, retryAfter: r.retryAfter, retry: r.status === 429 || r.status >= 500 };
     } catch (e) {
       const code = (e as { code?: string }).code;
-      return { ok: false, error: code === 'SSRF_BLOCKED' ? 'Zieladresse blockiert' : (e as Error).message, retry: code !== 'SSRF_BLOCKED' };
+      const error = code === 'SSRF_BLOCKED' ? 'Zieladresse blockiert'
+        : code === 'TIMEOUT' || code === 'RESPONSE_ABORTED' ? (e as Error).message
+          : 'Verbindung zum Ziel fehlgeschlagen.';
+      return { ok: false, error, retry: code !== 'SSRF_BLOCKED' };
     }
   }
 
@@ -116,7 +119,10 @@ export function createDeliverer(deps: DelivererDeps) {
       catch (e) {
         const code = (e as { code?: string }).code;
         if (code === 'SSRF_BLOCKED') return { ok: false, error: 'Discord-Adresse blockiert' };
-        if (attempt > 0) return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        if (attempt > 0) {
+          const error = code === 'TIMEOUT' || code === 'RESPONSE_ABORTED' ? (e as Error).message : 'Verbindung zu Discord fehlgeschlagen.';
+          return { ok: false, error };
+        }
         if (!currentDiscordLink(t, recipientId)) return { ok: false, error: DISCORD_UNLINKED };
         continue;
       }
@@ -224,6 +230,10 @@ export function createDeliverer(deps: DelivererDeps) {
     async sendTest(t: Target): Promise<{ ok: boolean; error?: string; errorCode?: number }> {
       const f: Formatted = { title: 'twitchPinger', text: TEST_TEXT, url: 'https://twitch.tv' };
       const r = await send(t, f);
+      return r.ok ? { ok: true } : { ok: false, error: r.error, ...(r.errorCode !== undefined ? { errorCode: r.errorCode } : {}) };
+    },
+    async sendRuleTest(t: Target, hit: Hit): Promise<{ ok: boolean; error?: string; errorCode?: number }> {
+      const r = await send(t, formatSingle(hit, true));
       return r.ok ? { ok: true } : { ok: false, error: r.error, ...(r.errorCode !== undefined ? { errorCode: r.errorCode } : {}) };
     },
     /** Sends everything still collected and waits for all in-flight sends. */
