@@ -99,6 +99,7 @@ legend { padding: 0; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; min-height: 44px; align-items: center; margin-bottom: 8px; }
 .chips.add { margin-bottom: 12px; }
 .switch, .check { display: flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.skip-self-hint { margin: 0 0 8px 30px; font-size: 0.875rem; }
 .checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); column-gap: 16px; }
 .expr { display: flex; align-items: center; min-height: 44px; padding: 0 12px; border: 1px dashed var(--line); border-radius: var(--r-md); color: var(--muted); overflow-x: auto; white-space: nowrap; }
 

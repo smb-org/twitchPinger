@@ -23,6 +23,7 @@ test('describeRule: messages and sender', () => {
   assert.equal(describeRule(r, ['c']), 'Meldet, wenn 3 Nachrichten, die mit „!play“ beginnen, innerhalb von 120 s geschrieben werden, nur von Mods und VIPs, in c, danach 5 min Ruhe.');
   const e = rule({ sender: { badges: [], logins: ['bot'], exclude: true } });
   assert.match(describeRule(e, []), /, außer von bot, danach/);
+  assert.match(describeRule(rule({ skipIfSelf: true }), []), /wenn du im Zeitfenster selbst ausgelöst hast/);
 });
 
 test('simulateThreshold', () => {

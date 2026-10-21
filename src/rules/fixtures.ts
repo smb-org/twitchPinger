@@ -10,6 +10,6 @@ export function rule(o: Partial<Rule> = {}): Rule {
     matcher: { mode: 'prefix', pattern: '!play', caseSensitive: false },
     sender: { badges: [], logins: [], exclude: false },
     burst: { threshold: 5, windowSec: 60, countBy: 'users' },
-    cooldownSec: 300, channelIds: ['c1'], targetIds: [], updatedAt: 1, ...o,
+    cooldownSec: 300, skipIfSelf: false, channelIds: ['c1'], targetIds: [], updatedAt: 1, ...o,
   };
 }

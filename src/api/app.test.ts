@@ -366,6 +366,7 @@ test('rules: create/update/delete, validation errors, limit, ownership, updatedA
   assert.equal((await err({ ...base, matcher: { mode: 'nope', pattern: 'a' } })).field, 'matcher.mode');
   assert.equal((await err({ ...base, matcher: { mode: 'contains', pattern: 'a'.repeat(201) } })).field, 'matcher.pattern');
   assert.equal((await err({ ...base, cooldownSec: 29 })).field, 'cooldownSec');
+  assert.equal((await err({ ...base, skipIfSelf: 'yes' })).field, 'skipIfSelf');
   assert.equal((await err({ ...base, burst: { threshold: 0, windowSec: 60 } })).field, 'burst.threshold');
   assert.equal((await err({ ...base, burst: { threshold: 101, windowSec: 60 } })).field, 'burst.threshold');
   assert.equal((await err({ ...base, burst: { threshold: 2, windowSec: 4 } })).field, 'burst.windowSec');
@@ -378,9 +379,12 @@ test('rules: create/update/delete, validation errors, limit, ownership, updatedA
   const rule = (await j(created)).rule;
   assert.equal(rule.updatedAt, 1_000_000);
   assert.equal(rule.burst.countBy, 'users');
+  assert.equal(rule.skipIfSelf, false);
   a.advance(5000);
-  const put = await a.req(`/rules/${rule.id}`, { method: 'PUT', cookie: alice, body: { ...base, name: 'renamed' } });
-  assert.equal((await j(put)).rule.updatedAt, 1_005_000);
+  const put = await a.req(`/rules/${rule.id}`, { method: 'PUT', cookie: alice, body: { ...base, name: 'renamed', skipIfSelf: true } });
+  const updated = await j(put);
+  assert.equal(updated.rule.skipIfSelf, true);
+  assert.equal(updated.rule.updatedAt, 1_005_000);
   // other user cannot touch it
   assert.equal((await a.req(`/rules/${rule.id}`, { method: 'PUT', cookie: admin, body: base })).status, 404);
   assert.equal((await a.req(`/rules/${rule.id}`, { method: 'DELETE', cookie: admin })).status, 404);

@@ -7,14 +7,16 @@ import type { Hit } from '../types.ts';
 function setup(last: number | null = null) {
   const hits: Omit<Hit, 'channelDisplayName' | 'channelAvatar'>[] = [];
   const stored: number[] = [];
+  const logs: string[] = [];
   let t = 1_000_000;
   const e = createEngine({
     now: () => t,
     onHit: (h) => hits.push(h),
+    log: (line) => logs.push(line),
     getLastFired: () => last,
     setLastFired: (_r, _c, ts) => stored.push(ts),
   });
-  return { e, hits, stored, tick: (ms: number) => (t += ms) };
+  return { e, hits, stored, logs, tick: (ms: number) => (t += ms) };
 }
 const one = { threshold: 1, windowSec: 60, countBy: 'users' as const };
 
@@ -140,4 +142,72 @@ test('live progress counts messages when countBy is messages', () => {
   e.ingest(msg('!play', { userId: 'u2' }));
   assert.equal(hits.length, 1);
   assert.equal(e.live('r1')[0]?.tally?.mentions, 3);
+});
+
+test('skipIfSelf suppresses a fire when the owner matched inside the burst window', () => {
+  const { e, hits, stored, logs, tick } = setup();
+  const burst = { threshold: 2, windowSec: 60, countBy: 'users' as const };
+  e.setRules([rule({ skipIfSelf: true, burst, cooldownSec: 60 })]);
+  e.ingest(msg('!play', { userId: 'o1' }));
+  tick(10_000);
+  e.ingest(msg('!play', { userId: 'u2' }));
+
+  assert.equal(hits.length, 0);
+  assert.deepEqual(stored, [1_010_000]);
+  assert.deepEqual(logs, ['rule r1 fired in sbx_tv, skipped: owner already joined']);
+  assert.deepEqual(e.live('r1'), [{ channelId: 'c1', inWindow: 0, cooling: true, tally: { since: 1_010_000, mentions: 2, chatters: 2 } }]);
+});
+
+test('skipIfSelf delivers when the owner match is outside the burst window', () => {
+  const { e, hits, tick } = setup();
+  e.setRules([rule({ skipIfSelf: true, burst: { threshold: 2, windowSec: 60, countBy: 'users' } })]);
+  e.ingest(msg('!play', { userId: 'o1' }));
+  tick(60_001);
+  e.ingest(msg('!play', { userId: 'u2' }));
+  e.ingest(msg('!play', { userId: 'u3' }));
+  assert.equal(hits.length, 1);
+});
+
+test('skipIfSelf is off by default and owner matches still deliver', () => {
+  const { e, hits } = setup();
+  e.setRules([rule({ burst: one })]);
+  e.ingest(msg('!play', { userId: 'o1' }));
+  assert.equal(hits.length, 1);
+});
+
+test('owner matches are remembered even when the sender filter excludes the owner', () => {
+  const { e, hits, stored } = setup();
+  e.setRules([rule({
+    skipIfSelf: true,
+    burst: one,
+    sender: { badges: [], logins: ['allowed'], exclude: false },
+  })]);
+  e.ingest(msg('!play', { userId: 'o1', login: 'owner' }));
+  e.ingest(msg('!play', { userId: 'u2', login: 'allowed' }));
+  assert.equal(hits.length, 0);
+  assert.deepEqual(stored, [1_000_000]);
+});
+
+test('cooldown starts after a suppressed fire', () => {
+  const { e, hits, stored, tick } = setup();
+  e.setRules([rule({ skipIfSelf: true, burst: one })]);
+  e.ingest(msg('!play', { userId: 'o1' }));
+  assert.equal(hits.length, 0);
+  assert.equal(e.live('r1')[0]?.cooling, true);
+
+  tick(60_001);
+  e.ingest(msg('!play', { userId: 'u2' }));
+  assert.equal(hits.length, 0);
+  tick(239_999);
+  e.ingest(msg('!play', { userId: 'u3' }));
+  assert.equal(hits.length, 1);
+  assert.deepEqual(stored, [1_000_000, 1_300_000]);
+});
+
+test('owner join timestamp is isolated by channel', () => {
+  const { e, hits } = setup();
+  e.setRules([rule({ skipIfSelf: true, burst: one, channelIds: ['c1', 'c2'] })]);
+  e.ingest(msg('!play', { userId: 'o1', channelId: 'c1' }));
+  e.ingest(msg('!play', { userId: 'u2', channelId: 'c2', channel: 'other' }));
+  assert.deepEqual(hits.map((h) => h.channelId), ['c2']);
 });

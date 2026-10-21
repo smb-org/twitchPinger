@@ -190,6 +190,11 @@ export function RuleEditor({ id }: { id: string | null }) {
                   <option value="min">Minuten</option>
                 </select>
               </div>
+              <label class="switch">
+                <input type="checkbox" checked={form.skipIfSelf} onChange={(e) => upd({ skipIfSelf: (e.target as HTMLInputElement).checked })} />
+                <span>Nicht melden, wenn ich selbst schon mitgemacht habe</span>
+              </label>
+              <p class="muted skip-self-hint">Hast du im Zeitfenster selbst ausgelöst (z. B. !play getippt), kommt keine Benachrichtigung; die Pause beginnt trotzdem.</p>
               <Err text={errs.cooldownSec || srvOf('cooldownSec')} />
             </fieldset>
 

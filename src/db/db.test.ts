@@ -17,26 +17,28 @@ function setup() {
 }
 const ruleOf = (id: string, ownerId: string, channelIds: string[] = [], targetIds: string[] = []) => ({
   id, ownerId, name: id, enabled: true, matcher: { mode: 'contains' as const, pattern: 'x', caseSensitive: false },
-  sender: { badges: [], logins: [], exclude: false }, burst: { threshold: 1, windowSec: 60, countBy: 'users' as const }, cooldownSec: 60, channelIds, targetIds,
+  sender: { badges: [], logins: [], exclude: false }, burst: { threshold: 1, windowSec: 60, countBy: 'users' as const }, cooldownSec: 60, skipIfSelf: false, channelIds, targetIds,
 });
 
 test('migrations set user_version and are idempotent', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tp-'));
   openDb(join(dir, 'a.db')).close();
   const db = openDb(join(dir, 'a.db'));
-  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 3);
+  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 4);
 });
 
-test('migration adds avatar_url to an existing channels table without losing rows', () => {
+test('migration adds avatar_url and skip_if_self without losing existing rows', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'tp-')), 'old.db');
   const old = new DatabaseSync(path);
-  old.exec("CREATE TABLE channels (id TEXT PRIMARY KEY, login TEXT NOT NULL, display_name TEXT NOT NULL, added_at INTEGER NOT NULL); INSERT INTO channels VALUES ('c1', 'one', 'One', 7); PRAGMA user_version = 2;");
+  old.exec("CREATE TABLE channels (id TEXT PRIMARY KEY, login TEXT NOT NULL, display_name TEXT NOT NULL, added_at INTEGER NOT NULL); INSERT INTO channels VALUES ('c1', 'one', 'One', 7); CREATE TABLE rules (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, matcher_json TEXT NOT NULL, sender_json TEXT NOT NULL, burst_json TEXT NOT NULL, cooldown_sec INTEGER NOT NULL, channel_ids_json TEXT NOT NULL, target_ids_json TEXT NOT NULL, updated_at INTEGER NOT NULL); INSERT INTO rules VALUES ('legacy', 'u1', 'legacy', 1, '{}', '{}', '{}', 60, '[]', '[]', 1); PRAGMA user_version = 2;");
   old.close();
 
   const db = openDb(path);
   const repo = createRepo(db);
   assert.deepEqual(repo.getChannel('c1'), { id: 'c1', login: 'one', displayName: 'One', avatarUrl: null });
+  assert.equal(repo.getRule('legacy')?.skipIfSelf, false);
   assert.ok((db.prepare('PRAGMA table_info(channels)').all() as { name: string }[]).some((column) => column.name === 'avatar_url'));
+  assert.equal((db.prepare('PRAGMA table_info(rules)').all() as { name: string }[]).some((column) => column.name === 'skip_if_self'), true);
   db.close();
 });
 
@@ -75,6 +77,14 @@ test('listEnabledRules skips disabled rules and locked owners; lock disables rul
   assert.deepEqual(repo.listEnabledRules().map((r) => r.id), ['r1']);
   assert.equal(repo.getRule('r3')!.enabled, false);
   assert.equal(repo.listEnabledRules()[0].updatedAt, 5);
+});
+
+test('rule skipIfSelf round-trips and upsert updates the value', () => {
+  const { repo } = setup();
+  repo.saveRule({ ...ruleOf('r1', 'u1'), skipIfSelf: true }, 5);
+  assert.equal(repo.getRule('r1')?.skipIfSelf, true);
+  repo.saveRule({ ...ruleOf('r1', 'u1'), skipIfSelf: false }, 6);
+  assert.equal(repo.getRule('r1')?.skipIfSelf, false);
 });
 
 test('target is failing after 3 consecutive failures, success resets', () => {

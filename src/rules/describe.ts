@@ -31,7 +31,8 @@ export function describeRule(rule: Rule, channelLabels: string[]): string {
   const who = [...s.badges.map((x) => BADGE_DE[x]), ...s.logins];
   const sender = who.length ? (s.exclude ? `, außer von ${list(who)}` : `, nur von ${list(who)}`) : '';
   const ch = channelLabels.length ? `, in ${list(channelLabels)}` : '';
-  return `${head}${sender}${ch}, danach ${duration(cooldownMs(rule.cooldownSec) / 1000)} Ruhe.`;
+  const self = rule.skipIfSelf ? ', aber nicht, wenn du im Zeitfenster selbst ausgelöst hast' : '';
+  return `${head}${sender}${ch}${self}, danach ${duration(cooldownMs(rule.cooldownSec) / 1000)} Ruhe.`;
 }
 
 /** Replay messages (oldest first) through matcher, sender filter and burst, using sentAt as clock. */

@@ -21,7 +21,7 @@ const channel = (r: Row): ChannelRow => ({ id: r.id, login: r.login, displayName
 const rule = (r: Row): Rule => ({
   id: r.id, ownerId: r.owner_id, name: r.name, enabled: bool(r.enabled),
   matcher: JSON.parse(r.matcher_json), sender: JSON.parse(r.sender_json), burst: JSON.parse(r.burst_json),
-  cooldownSec: r.cooldown_sec, channelIds: JSON.parse(r.channel_ids_json), targetIds: JSON.parse(r.target_ids_json), updatedAt: r.updated_at,
+  cooldownSec: r.cooldown_sec, skipIfSelf: bool(r.skip_if_self), channelIds: JSON.parse(r.channel_ids_json), targetIds: JSON.parse(r.target_ids_json), updatedAt: r.updated_at,
 });
 const target = (r: Row): Target => ({ id: r.id, ownerId: r.owner_id, kind: r.kind as TargetKind, name: r.name, url: r.url, token: r.token, failCount: r.fail_count, status: r.status, lastError: r.last_error ?? null });
 
@@ -35,11 +35,11 @@ export function createRepo(db: DatabaseSync) {
     try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; }
   };
   const writeRule = (r: RuleInput, now: number): Rule => {
-    run(`INSERT INTO rules (id, owner_id, name, enabled, matcher_json, sender_json, burst_json, cooldown_sec, channel_ids_json, target_ids_json, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, enabled = excluded.enabled, matcher_json = excluded.matcher_json,
+    run(`INSERT INTO rules (id, owner_id, name, enabled, matcher_json, sender_json, burst_json, cooldown_sec, skip_if_self, channel_ids_json, target_ids_json, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name = excluded.name, enabled = excluded.enabled, matcher_json = excluded.matcher_json,
       sender_json = excluded.sender_json, burst_json = excluded.burst_json, cooldown_sec = excluded.cooldown_sec,
-      channel_ids_json = excluded.channel_ids_json, target_ids_json = excluded.target_ids_json, updated_at = excluded.updated_at`,
-      r.id, r.ownerId, r.name, r.enabled ? 1 : 0, JSON.stringify(r.matcher), JSON.stringify(r.sender), JSON.stringify(r.burst), r.cooldownSec,
+      skip_if_self = excluded.skip_if_self, channel_ids_json = excluded.channel_ids_json, target_ids_json = excluded.target_ids_json, updated_at = excluded.updated_at`,
+      r.id, r.ownerId, r.name, r.enabled ? 1 : 0, JSON.stringify(r.matcher), JSON.stringify(r.sender), JSON.stringify(r.burst), r.cooldownSec, r.skipIfSelf ? 1 : 0,
       JSON.stringify(r.channelIds), JSON.stringify(r.targetIds), now);
     run('DELETE FROM last_fired WHERE rule_id = ?', r.id);
     return { ...r, updatedAt: now };

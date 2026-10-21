@@ -319,6 +319,8 @@ export function createApi(deps: ApiDeps) {
     if (countBy !== 'users' && countBy !== 'messages') throw bad('burst.countBy', 'Ungültige Zählweise.');
 
     const cooldownSec = int(b.cooldownSec ?? 300, 'cooldownSec', L.MIN_COOLDOWN_SEC, 86_400 * 7, `Der Cooldown muss mindestens ${L.MIN_COOLDOWN_SEC} Sekunden betragen.`);
+    const skipIfSelf = b.skipIfSelf === undefined ? false : b.skipIfSelf;
+    if (typeof skipIfSelf !== 'boolean') throw bad('skipIfSelf', 'Ungültige Einstellung.');
 
     const idList = (v: unknown, field: string, owned: Set<string>, msg: string): string[] => {
       if (!Array.isArray(v) || !v.every((x) => typeof x === 'string' && owned.has(x))) throw bad(field, msg);
@@ -332,7 +334,7 @@ export function createApi(deps: ApiDeps) {
       matcher: { mode: m.mode, pattern: m.pattern, caseSensitive: m.caseSensitive === true },
       sender: { badges, logins, exclude: s.exclude === true },
       burst: { threshold: int(bu.threshold ?? 1, 'burst.threshold', 1, 100, 'Die Schwelle muss zwischen 1 und 100 liegen.'), windowSec: int(bu.windowSec ?? 60, 'burst.windowSec', 5, 3600, 'Das Fenster muss zwischen 5 und 3600 Sekunden liegen.'), countBy },
-      cooldownSec, channelIds, targetIds,
+      cooldownSec, skipIfSelf, channelIds, targetIds,
     };
   }
 

@@ -17,6 +17,7 @@ interface Compiled {
   states: Map<string, BurstState>;
   windows: Map<string, Array<{ userId: string; t: number }>>;
   tallies: Map<string, Tally>;
+  ownerMatches: Map<string, number>;
   /** Persisted last-fired seeds cooldown only for rules unseen before (restart); edits ignore it. */
   seedFromDb: boolean;
 }
@@ -49,7 +50,7 @@ export function createEngine(deps: EngineDeps) {
         } else {
           // Edited or new: fresh state, persisted last-fired ignored only when it replaces an existing rule.
           try {
-            next.set(rule.id, { rule, match: compileMatcher(rule.matcher), states: new Map(), windows: new Map(), tallies: new Map(), seedFromDb: !old });
+            next.set(rule.id, { rule, match: compileMatcher(rule.matcher), states: new Map(), windows: new Map(), tallies: new Map(), ownerMatches: new Map(), seedFromDb: !old });
           } catch (err) {
             (deps.log ?? console.error)(`rule ${rule.id} skipped, matcher does not compile: ${err}`);
           }
@@ -71,14 +72,16 @@ export function createEngine(deps: EngineDeps) {
       const t0 = performance.now();
       for (const c of list) {
         const { rule } = c;
-        if (!matchesSender(rule.sender, msg) || !c.match(msg.text).matched) continue;
+        if (!c.match(msg.text).matched) continue;
+        const now = deps.now();
+        if (msg.userId === rule.ownerId) c.ownerMatches.set(msg.channelId, now);
+        if (!matchesSender(rule.sender, msg)) continue;
         let st = c.states.get(msg.channelId);
         if (!st) {
           const last = c.seedFromDb ? deps.getLastFired(rule.id, msg.channelId) : null;
           st = createBurstState(last === null ? 0 : last + cooldownMs(rule.cooldownSec));
           c.states.set(msg.channelId, st);
         }
-        const now = deps.now();
         let window = c.windows.get(msg.channelId) ?? [];
         if (now >= st.cooldownUntil) {
           const cutoff = now - rule.burst.windowSec * 1000;
@@ -99,6 +102,11 @@ export function createEngine(deps: EngineDeps) {
         c.tallies.set(msg.channelId, { since: firedAt, mentions: window.length, chatters });
         c.windows.set(msg.channelId, []);
         deps.setLastFired(rule.id, msg.channelId, firedAt);
+        const ownerMatchAt = c.ownerMatches.get(msg.channelId);
+        if (rule.skipIfSelf && ownerMatchAt !== undefined && ownerMatchAt > now - rule.burst.windowSec * 1000 && ownerMatchAt <= now) {
+          deps.log?.(`rule ${rule.id} fired in ${msg.channel}, skipped: owner already joined`);
+          continue;
+        }
         deps.onHit({ ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: msg.channelId, channel: msg.channel, count: r.count, burst: rule.burst, cooldownSec: rule.cooldownSec, sample: msg, firedAt });
       }
       const micros = (performance.now() - t0) * 1000;

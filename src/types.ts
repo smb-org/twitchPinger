@@ -11,7 +11,7 @@ export interface SenderFilter { badges: Badge[]; logins: string[]; exclude: bool
 /** Fire only after `threshold` hits within `windowSec`. */
 export interface Burst { threshold: number; windowSec: number; countBy: 'users' | 'messages'; }
 /** A user-defined notification rule. */
-export interface Rule { id: string; ownerId: string; name: string; enabled: boolean; matcher: Matcher; sender: SenderFilter; burst: Burst; cooldownSec: number; channelIds: string[]; targetIds: string[]; updatedAt: number; }
+export interface Rule { id: string; ownerId: string; name: string; enabled: boolean; matcher: Matcher; sender: SenderFilter; burst: Burst; cooldownSec: number; skipIfSelf: boolean; channelIds: string[]; targetIds: string[]; updatedAt: number; }
 /** Delivery channel type. */
 export type TargetKind = 'discord' | 'discord_dm' | 'ntfy';
 /** A delivery destination owned by a user. */

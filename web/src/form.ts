@@ -19,13 +19,14 @@ export interface Form {
   badges: Badge[]; logins: string[]; exclude: boolean;
   threshold: string; windowSec: string; countBy: 'users' | 'messages';
   cdVal: string; cdUnit: 's' | 'min';
+  skipIfSelf: boolean;
   channelIds: string[]; targetIds: string[];
 }
 
 export const emptyForm = (): Form => ({
   name: '', enabled: true, mode: 'contains', pattern: '', blocks: null, caseSensitive: false,
   badges: [], logins: [], exclude: false, threshold: '1', windowSec: '60', countBy: 'users',
-  cdVal: '5', cdUnit: 'min', channelIds: [], targetIds: [],
+  cdVal: '5', cdUnit: 'min', skipIfSelf: false, channelIds: [], targetIds: [],
 });
 
 /** Marbles template: prefix "!play", 5 chatters / 60 s, cooldown 5 min. */
@@ -47,6 +48,7 @@ export function fromRule(r: Rule): Form {
     badges: r.sender.badges, logins: r.sender.logins, exclude: r.sender.exclude,
     threshold: String(r.burst.threshold), windowSec: String(r.burst.windowSec), countBy: r.burst.countBy,
     cdVal: String(min ? r.cooldownSec / 60 : r.cooldownSec), cdUnit: min ? 'min' : 's',
+    skipIfSelf: r.skipIfSelf,
     channelIds: r.channelIds, targetIds: r.targetIds,
   };
 }
@@ -65,6 +67,7 @@ export function toBody(f: Form) {
     sender: { badges: f.badges, logins: f.logins, exclude: f.exclude },
     burst: { threshold: Number.isFinite(t) ? t : 1, windowSec: Number.isFinite(w) ? w : 60, countBy: f.countBy },
     cooldownSec: Number.isFinite(c) ? Math.round(c) : 300,
+    skipIfSelf: f.skipIfSelf,
     channelIds: f.channelIds, targetIds: f.targetIds,
   };
 }
