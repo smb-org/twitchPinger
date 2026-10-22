@@ -4,8 +4,7 @@ import { useTitle } from '../ui.tsx';
 const ERRORS: Record<string, string> = {
   no_invite: 'Kein Konto gefunden. Der Zugang ist nur mit Einladungslink möglich.',
   invite_invalid: 'Diese Einladung ist ungültig. Frag nach einem neuen Link.',
-  invite_used: 'Diese Einladung wurde schon benutzt – frag nach einem neuen Link.',
-  invite_expired: 'Diese Einladung ist abgelaufen – frag nach einem neuen Link.',
+  invite_full: 'Über diesen Link sind schon alle Plätze vergeben – frag nach einem anderen Link.',
   locked: 'Dein Konto ist gesperrt.',
   accounts_full: 'Das Kontenlimit ist erreicht. Im Moment können keine neuen Konten angelegt werden.',
   oauth_failed: 'Die Anmeldung bei Twitch wurde abgebrochen oder ist fehlgeschlagen. Versuch es noch einmal.',

@@ -66,6 +66,12 @@ const MIGRATIONS: string[] = [
   `,
   `ALTER TABLE channels ADD COLUMN avatar_url TEXT;`,
   `ALTER TABLE rules ADD COLUMN skip_if_self INTEGER NOT NULL DEFAULT 0;`,
+  `
+  ALTER TABLE users ADD COLUMN invite_code TEXT;
+  UPDATE users SET invite_code = lower(hex(randomblob(12)));
+  CREATE UNIQUE INDEX users_invite_code ON users(invite_code);
+  UPDATE invites SET revoked = 1 WHERE used_by IS NULL;
+  `,
 ];
 
 export function openDb(path: string): DatabaseSync {

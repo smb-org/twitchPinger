@@ -15,6 +15,16 @@ const USERS: Record<string, { id: string; login: string; display_name: string }>
   alice: { id: '2', login: 'alice', display_name: 'Alice' },
   bob: { id: '3', login: 'bob', display_name: 'Bob' },
   carol: { id: '4', login: 'carol', display_name: 'Carol' },
+  dave: { id: '5', login: 'dave', display_name: 'Dave' },
+  erin: { id: '6', login: 'erin', display_name: 'Erin' },
+  frank: { id: '7', login: 'frank', display_name: 'Frank' },
+  grace: { id: '8', login: 'grace', display_name: 'Grace' },
+  heidi: { id: '9', login: 'heidi', display_name: 'Heidi' },
+  ivy: { id: '10', login: 'ivy', display_name: 'Ivy' },
+  judy: { id: '11', login: 'judy', display_name: 'Judy' },
+  mallory: { id: '12', login: 'mallory', display_name: 'Mallory' },
+  nancy: { id: '13', login: 'nancy', display_name: 'Nancy' },
+  oscar: { id: '14', login: 'oscar', display_name: 'Oscar' },
 };
 const CHANNELS = ['marbles_one', 'marbles_two', 'marbles_three', 'other_chan'];
 
@@ -105,11 +115,13 @@ function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string; 
       return { res: r2, location: r2.headers.get('location')!, cookie: m ? `mn_session=${m[1]}` : '', setCookie: sc };
     },
     async mkInvite(cookie: string) {
-      const r = await api.req('/invites', { method: 'POST', cookie, body: {} });
-      return (await r.json()) as { id: string; code: string; link: string };
+      const data = await j(await api.req('/invites', { cookie }));
+      assert.equal(typeof data.link, 'string');
+      const link = data.link as string;
+      return { code: link.split('/').at(-1)!, link };
     },
-    async join(who: string, adminCookie: string) {
-      const inv = await api.mkInvite(adminCookie);
+    async join(who: string, inviterCookie: string) {
+      const inv = await api.mkInvite(inviterCookie);
       return api.login(who, inv.code);
     },
   };
@@ -146,12 +158,12 @@ test('health fails after the disconnected startup grace and sustained join short
   assert.equal((await a.req('/health')).status, 200);
 });
 
-test('Origin check: POST without or with foreign origin is 403', async () => {
+test('reset needs same-origin', async () => {
   const a = setup();
   const { cookie } = await a.login('admin');
-  assert.equal((await a.req('/invites', { method: 'POST', cookie, origin: 'https://evil.example', body: {} })).status, 403);
-  assert.equal((await a.req('/invites', { method: 'POST', cookie, origin: null, body: {} })).status, 403);
-  assert.equal((await a.req('/invites', { method: 'POST', cookie, body: {} })).status, 201);
+  assert.equal((await a.req('/invites/reset', { method: 'POST', cookie, origin: 'https://evil.example' })).status, 403);
+  assert.equal((await a.req('/invites/reset', { method: 'POST', cookie, origin: null })).status, 403);
+  assert.equal((await a.req('/invites/reset', { method: 'POST', cookie })).status, 200);
 });
 
 test('callback: admin bootstrap, session cookie flags, onboarding redirect', async () => {
@@ -270,26 +282,87 @@ test('callback: tampered state fails, and unknown users without invites get a sp
   assert.equal(a.repo.getUser('2'), undefined);
 });
 
-test('callback: valid invite creates user, is single-use; used/expired/revoked rejected', async () => {
+test('personal link: reusable up to 5, then invite_full; admin unlimited', async () => {
   const a = setup();
   const admin = await a.login('admin');
-  const inv = await a.mkInvite(admin.cookie);
-  assert.match(inv.link, new RegExp(`^${ORIGIN}/invite/`));
-  const ok = await a.login('alice', inv.code);
-  assert.equal(ok.location, '/onboarding');
-  assert.equal(a.repo.getUser('2')!.invitedBy, '1');
-  assert.equal((await a.login('bob', inv.code)).location, '/login?error=invite_used');
-  // alice may log in again without an invite
-  assert.equal((await a.login('alice')).location, '/');
+  const alice = await a.join('alice', admin.cookie);
+  assert.equal(alice.location, '/onboarding');
+  const aliceInvite = await a.mkInvite(alice.cookie);
+  assert.match(aliceInvite.link, new RegExp(`^${ORIGIN}/invite/`));
+  for (const who of ['bob', 'carol', 'dave', 'erin', 'frank']) {
+    a.advance(1);
+    assert.equal((await a.login(who, aliceInvite.code)).location, '/onboarding');
+  }
+  assert.equal((await a.login('grace', aliceInvite.code)).location, '/login?error=invite_full');
+  const aliceInvites = await j(await a.req('/invites', { cookie: alice.cookie }));
+  assert.equal(aliceInvites.used, 5);
+  assert.equal(aliceInvites.max, 5);
+  assert.deepEqual(aliceInvites.invitees.map((x: { login: string }) => x.login), ['bob', 'carol', 'dave', 'erin', 'frank']);
 
-  const exp = await a.mkInvite(admin.cookie);
-  a.advance(LIMITS_DEFAULTS.INVITE_TTL_DAYS * 86_400_000 + 1);
-  assert.equal((await a.login('bob', exp.code)).location, '/login?error=invite_expired');
+  const adminInvite = await a.mkInvite(admin.cookie);
+  for (const who of ['heidi', 'ivy', 'judy', 'mallory', 'nancy', 'oscar']) assert.equal((await a.login(who, adminInvite.code)).location, '/onboarding');
+  const adminInvites = await j(await a.req('/invites', { cookie: admin.cookie }));
+  assert.equal(adminInvites.max, null);
+});
 
-  const rev = await a.mkInvite(admin.cookie);
-  assert.equal((await a.req(`/invites/${rev.id}`, { method: 'DELETE', cookie: admin.cookie })).status, 200);
-  assert.equal((await a.login('bob', rev.code)).location, '/login?error=invite_invalid');
-  assert.equal((await a.login('bob', 'garbage')).location, '/login?error=invite_invalid');
+test('reset invalidates old code, keeps slots and invitees', async () => {
+  const a = setup();
+  const admin = await a.login('admin');
+  const alice = await a.join('alice', admin.cookie);
+  const old = await a.mkInvite(alice.cookie);
+  assert.equal((await a.login('bob', old.code)).location, '/onboarding');
+  assert.equal((await a.login('carol', old.code)).location, '/onboarding');
+  const reset = await j(await a.req('/invites/reset', { method: 'POST', cookie: alice.cookie }));
+  assert.notEqual(reset.link, old.link);
+  assert.equal((await a.login('dave', old.code)).location, '/login?error=invite_invalid');
+  assert.equal((await a.login('erin', reset.link.split('/').at(-1))).location, '/onboarding');
+  const current = await j(await a.req('/invites', { cookie: alice.cookie }));
+  assert.equal(current.used, 3);
+  assert.deepEqual(current.invitees.map((x: { login: string }) => x.login), ['bob', 'carol', 'erin']);
+});
+
+test('locked inviter: link invalid, works again after unlock', async () => {
+  const a = setup();
+  const admin = await a.login('admin');
+  const alice = await a.join('alice', admin.cookie);
+  const invite = await a.mkInvite(alice.cookie);
+  assert.equal((await a.req('/admin/users/2/lock', { method: 'POST', cookie: admin.cookie })).status, 200);
+  assert.equal((await a.login('bob', invite.code)).location, '/login?error=invite_invalid');
+  assert.equal((await a.req('/admin/users/2/unlock', { method: 'POST', cookie: admin.cookie })).status, 200);
+  assert.equal((await a.login('bob', invite.code)).location, '/onboarding');
+});
+
+test('existing user logs in with a garbage invite param normally', async () => {
+  const a = setup();
+  await a.login('admin');
+  assert.equal((await a.login('admin', 'garbage')).location, '/');
+});
+
+test('/me exposes invite points', async () => {
+  const a = setup();
+  const admin = await a.login('admin');
+  const alice = await a.join('alice', admin.cookie);
+  await a.join('bob', alice.cookie);
+  const adminMe = await j(await a.req('/me', { cookie: admin.cookie }));
+  const aliceMe = await j(await a.req('/me', { cookie: alice.cookie }));
+  const bob = await a.login('bob');
+  const bobMe = await j(await a.req('/me', { cookie: bob.cookie }));
+  assert.equal(adminMe.invites.points, 1.5);
+  assert.deepEqual(aliceMe.invites, { points: 1, used: 1, max: 5 });
+  assert.equal(bobMe.invites.points, 0);
+  assert.equal(Object.hasOwn(aliceMe.counts, 'openInvites'), false);
+});
+
+test('personal invite slot race admits exactly one final invitee', async () => {
+  const a = setup();
+  const admin = await a.login('admin');
+  const alice = await a.join('alice', admin.cookie);
+  const invite = await a.mkInvite(alice.cookie);
+  for (const who of ['bob', 'carol', 'dave', 'erin']) assert.equal((await a.login(who, invite.code)).location, '/onboarding');
+  const results = await Promise.all([a.login('frank', invite.code), a.login('grace', invite.code)]);
+  assert.deepEqual(results.map((x) => x.location).sort(), ['/login?error=invite_full', '/onboarding']);
+  const aliceInvites = await j(await a.req('/invites', { cookie: alice.cookie }));
+  assert.equal(aliceInvites.used, 5);
 });
 
 test('callback: accounts_full and locked', async () => {
@@ -299,24 +372,6 @@ test('callback: accounts_full and locked', async () => {
   assert.equal((await a.join('bob', admin.cookie)).location, '/login?error=accounts_full');
   await a.req('/admin/users/2/lock', { method: 'POST', cookie: admin.cookie });
   assert.equal((await a.login('alice')).location, '/login?error=locked');
-});
-
-test('invites: open limit, plain code returned once, only hash stored', async () => {
-  const a = setup({ MAX_OPEN_INVITES: 2 });
-  const { cookie } = await a.login('admin');
-  const i1 = await a.mkInvite(cookie);
-  await a.mkInvite(cookie);
-  const r = await a.req('/invites', { method: 'POST', cookie, body: {} });
-  assert.equal(r.status, 409);
-  assert.equal((await j(r)).error.code, 'limit_invites');
-  const list = await j(await a.req('/invites', { cookie }));
-  assert.equal(list.invites.length, 2);
-  assert.ok(!JSON.stringify(list).includes(i1.code));
-  const rows = a.deps.db.prepare('SELECT code_hash FROM invites').all() as any[];
-  assert.ok(rows.every((x) => x.code_hash !== i1.code && x.code_hash.length === 64));
-  // revoking frees a slot
-  await a.req(`/invites/${i1.id}`, { method: 'DELETE', cookie });
-  assert.equal((await a.req('/invites', { method: 'POST', cookie, body: {} })).status, 201);
 });
 
 async function member(a: ReturnType<typeof setup>) {
@@ -625,12 +680,12 @@ test('overview includes per-channel live state and burst threshold', async () =>
 test('admin: lock semantics, unlock, authorization, onConfigChanged', async () => {
   const a = setup();
   const { admin, alice } = await member(a);
-  // alice invites bob, adds channel, rule and an open invite
+  // alice invites bob, adds channel, rule and has a personal link
   const bob = await a.join('bob', alice);
   assert.equal(bob.location, '/onboarding');
   const ch = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_one' } }))).channel;
   await a.req('/rules', { method: 'POST', cookie: alice, body: { name: 'r', matcher: { mode: 'contains', pattern: 'x' }, channelIds: [ch.id] } });
-  const open = await a.mkInvite(alice);
+  const invite = await a.mkInvite(alice);
 
   assert.equal((await a.req('/admin/users', { cookie: alice })).status, 403);
   assert.equal((await a.req('/admin/users/2/lock', { method: 'POST', cookie: alice })).status, 403);
@@ -642,7 +697,7 @@ test('admin: lock semantics, unlock, authorization, onConfigChanged', async () =
   assert.equal((await a.req('/me', { cookie: alice })).status, 401); // sessions gone
   assert.deepEqual(a.repo.desiredChannelLogins(), []);
   assert.equal(a.repo.listEnabledRules().length, 0);
-  assert.equal((await a.login('carol', open.code)).location, '/login?error=invite_invalid'); // open invite revoked
+  assert.equal((await a.login('carol', invite.code)).location, '/login?error=invite_invalid'); // locked inviter
   assert.ok(a.repo.getUser('3'), 'invitee stays');
   assert.equal((await a.req('/me', { cookie: bob.cookie })).status, 200);
   assert.equal(a.repo.listRules('2').length, 1, 'rules not deleted');

@@ -1,11 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { randomBytes } from 'node:crypto';
 import type { Rule, Target, TargetKind } from '../types.ts';
 
-export interface UserRow { id: string; login: string; displayName: string; isAdmin: boolean; locked: boolean; invitedBy: string | null; createdAt: number }
+export interface UserRow { id: string; login: string; displayName: string; isAdmin: boolean; locked: boolean; invitedBy: string | null; createdAt: number; inviteCode: string }
 export interface DiscordLinkRow { userId: string; discordUserId: string; username: string; channelId: string | null }
 export interface SessionRow { userId: string; expiresAt: number; follows: FollowSuggestion[] }
 export interface FollowSuggestion { id: string; login: string; displayName: string }
-export interface InviteRow { id: string; codeHash: string; createdBy: string; createdAt: number; expiresAt: number; usedBy: string | null; usedAt: number | null; revoked: boolean }
 export interface ChannelRow { id: string; login: string; displayName: string; avatarUrl: string | null }
 export interface AdminChannelRow extends ChannelRow { users: number; rules: number }
 export interface DeliveryResult { targetId: string; ok: boolean; ts: number }
@@ -15,8 +15,7 @@ export type RuleInput = Omit<Rule, 'updatedAt'>;
 type Row = Record<string, any>;
 
 const bool = (v: unknown): boolean => v === 1;
-const user = (r: Row): UserRow => ({ id: r.id, login: r.login, displayName: r.display_name, isAdmin: bool(r.is_admin), locked: bool(r.locked), invitedBy: r.invited_by, createdAt: r.created_at });
-const invite = (r: Row): InviteRow => ({ id: r.id, codeHash: r.code_hash, createdBy: r.created_by, createdAt: r.created_at, expiresAt: r.expires_at, usedBy: r.used_by, usedAt: r.used_at, revoked: bool(r.revoked) });
+const user = (r: Row): UserRow => ({ id: r.id, login: r.login, displayName: r.display_name, isAdmin: bool(r.is_admin), locked: bool(r.locked), invitedBy: r.invited_by, createdAt: r.created_at, inviteCode: r.invite_code });
 const channel = (r: Row): ChannelRow => ({ id: r.id, login: r.login, displayName: r.display_name, avatarUrl: r.avatar_url ?? null });
 const rule = (r: Row): Rule => ({
   id: r.id, ownerId: r.owner_id, name: r.name, enabled: bool(r.enabled),
@@ -57,8 +56,17 @@ export function createRepo(db: DatabaseSync) {
     // users
     getUser: (id: string) => { const r = get('SELECT * FROM users WHERE id = ?', id); return r && user(r); },
     createUser(u: { id: string; login: string; displayName: string; isAdmin: boolean; invitedBy: string | null; now: number }) {
-      run('INSERT INTO users (id, login, display_name, is_admin, invited_by, created_at) VALUES (?,?,?,?,?,?)', u.id, u.login, u.displayName, u.isAdmin ? 1 : 0, u.invitedBy, u.now);
+      run('INSERT INTO users (id, login, display_name, is_admin, invited_by, created_at, invite_code) VALUES (?,?,?,?,?,?,?)', u.id, u.login, u.displayName, u.isAdmin ? 1 : 0, u.invitedBy, u.now, randomBytes(12).toString('hex'));
     },
+    getUserByInviteCode(code: string) { const r = get('SELECT * FROM users WHERE invite_code = ?', code); return r && user(r); },
+    resetInviteCode(userId: string) {
+      const code = randomBytes(12).toString('hex');
+      run('UPDATE users SET invite_code = ? WHERE id = ?', code, userId);
+      return code;
+    },
+    countInvitees: (userId: string) => n('SELECT COUNT(*) n FROM users WHERE invited_by = ?', userId),
+    listInvitees: (userId: string) => all('SELECT login, created_at FROM users WHERE invited_by = ? ORDER BY created_at, id', userId).map((r) => ({ login: r.login, createdAt: r.created_at as number })),
+    listInviteEdges: () => all('SELECT id, invited_by FROM users').map((r) => ({ id: r.id as string, invitedBy: r.invited_by as string | null })),
     updateUserNames: (id: string, login: string, displayName: string) => { run('UPDATE users SET login = ?, display_name = ? WHERE id = ?', login, displayName, id); },
     getDiscordLink(userId: string): DiscordLinkRow | undefined {
       const r = get('SELECT * FROM discord_links WHERE user_id = ?', userId);
@@ -80,12 +88,11 @@ export function createRepo(db: DatabaseSync) {
         (SELECT COUNT(*) FROM user_channels WHERE user_id = u.id) channel_count FROM users u ORDER BY u.created_at`)
         .map((r) => ({ ...user(r), ruleCount: r.rule_count as number, channelCount: r.channel_count as number }));
     },
-    /** Lock: drop sessions, revoke open invites, disable rules. Nothing else is deleted; invitees stay. */
+    /** Lock: drop sessions and disable rules. Nothing else is deleted; invitees stay. */
     lockUser(id: string) {
       tx(() => {
         run('UPDATE users SET locked = 1 WHERE id = ?', id);
         run('DELETE FROM sessions WHERE user_id = ?', id);
-        run('UPDATE invites SET revoked = 1 WHERE created_by = ? AND used_by IS NULL', id);
         run('UPDATE rules SET enabled = 0 WHERE owner_id = ?', id);
       });
     },
@@ -110,18 +117,6 @@ export function createRepo(db: DatabaseSync) {
     },
     deleteSession: (idHash: string) => { run('DELETE FROM sessions WHERE id_hash = ?', idHash); },
     purgeExpiredSessions: (now: number) => { run('DELETE FROM sessions WHERE expires_at <= ?', now); },
-
-    // invites
-    createInvite: (i: { id: string; codeHash: string; createdBy: string; now: number; expiresAt: number }) => {
-      run('INSERT INTO invites (id, code_hash, created_by, created_at, expires_at) VALUES (?,?,?,?,?)', i.id, i.codeHash, i.createdBy, i.now, i.expiresAt);
-    },
-    getInviteByHash: (h: string) => { const r = get('SELECT * FROM invites WHERE code_hash = ?', h); return r && invite(r); },
-    listInvites: (userId: string) => all('SELECT * FROM invites WHERE created_by = ? ORDER BY created_at DESC', userId).map(invite),
-    countOpenInvites: (userId: string, now: number) =>
-      n('SELECT COUNT(*) n FROM invites WHERE created_by = ? AND used_by IS NULL AND revoked = 0 AND expires_at > ?', userId, now),
-    /** Returns true if an unused invite of this user was revoked. */
-    revokeInvite: (id: string, userId: string) => Number(run('UPDATE invites SET revoked = 1 WHERE id = ? AND created_by = ? AND used_by IS NULL', id, userId).changes) > 0,
-    markInviteUsed: (id: string, userId: string, now: number) => { run('UPDATE invites SET used_by = ?, used_at = ? WHERE id = ?', userId, now, id); },
 
     // channels
     upsertChannel: (c: Omit<ChannelRow, 'avatarUrl'> & { avatarUrl?: string | null }, now: number) => {
