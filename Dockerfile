@@ -1,11 +1,11 @@
-FROM node:24-slim AS build
+FROM node:24.22.1-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 RUN npm run typecheck && npm run build:web
 
-FROM node:24-slim
+FROM node:24.22.1-slim
 ARG APP_VERSION=dev
 ENV NODE_ENV=production DATA_DIR=/data
 ENV APP_VERSION=$APP_VERSION
