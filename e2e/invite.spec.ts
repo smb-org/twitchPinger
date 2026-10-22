@@ -9,6 +9,20 @@ test('login explains that new accounts require an invitation', async ({ page }) 
 test('personal link: admin shares, two users redeem, reset kills old link', async ({ browser, request }) => {
   const admin = await browser.newContext();
   const ap = await admin.newPage();
+  let failNextInviteReload = false;
+  let meRequests = 0;
+  await ap.route('**/api/invites', async (route) => {
+    if (failNextInviteReload && route.request().method() === 'GET') {
+      failNextInviteReload = false;
+      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'load_failed', message: 'Einladungen konnten nicht geladen werden.' } }) });
+      return;
+    }
+    await route.continue();
+  });
+  await ap.route('**/api/me', async (route) => {
+    if (route.request().method() === 'GET') meRequests++;
+    await route.continue();
+  });
   await nextTwitchUser(request, '1000', 'sbadmin');
   await ap.goto('/login');
   await ap.getByRole('link', { name: 'Mit Twitch anmelden' }).click();
@@ -37,13 +51,21 @@ test('personal link: admin shares, two users redeem, reset kills old link', asyn
   await p2.getByRole('link', { name: 'Mit Twitch anmelden' }).click();
   await expect(p2).toHaveURL(/\/onboarding$/);
 
-  await ap.goto('/invites');
+  const meBeforeInviteVisit = meRequests;
+  await ap.getByRole('link', { name: 'Übersicht', exact: true }).click();
+  await ap.getByRole('link', { name: 'Einladungen', exact: true }).click();
   await expect(ap.getByText('@invitee_one')).toBeVisible();
   await expect(ap.getByText('@invitee_two')).toBeVisible();
+  await expect.poll(() => meRequests).toBe(meBeforeInviteVisit + 1);
+  await expect(ap.getByTitle(/^Werbepunkte/)).toHaveText('◆ 2');
+  const meBeforeReset = meRequests;
+  failNextInviteReload = true;
   await ap.getByRole('button', { name: 'Neuen Link erzeugen' }).click();
   await ap.getByRole('button', { name: 'Wirklich?' }).click();
   await expect(ap.getByText('Neuer Link erzeugt')).toBeVisible();
   await expect(ap.locator('code.url')).not.toHaveText(link);
+  await expect(ap.getByText('Einladungen konnten nicht geladen werden.')).toBeVisible();
+  await expect.poll(() => meRequests).toBe(meBeforeReset + 1);
 
   const u3 = await browser.newContext();
   const p3 = await u3.newPage();
@@ -53,9 +75,40 @@ test('personal link: admin shares, two users redeem, reset kills old link', asyn
   await expect(p3).toHaveURL(/\/login\?error=invite_invalid$/);
   await expect(p3.getByText('Diese Einladung ist ungültig')).toBeVisible();
 
-  await ap.goto('/invites');
   await expect(ap.getByTitle(/^Werbepunkte/)).toHaveText('◆ 2');
+  await expect(ap.locator('[aria-label^="Werbepunkte"]')).toHaveText('◆ 2');
   await Promise.all([admin.close(), u1.close(), u2.close(), u3.close()]);
+});
+
+test('invite chain shows an error in its fixed summary area', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  await loginAs(ctx, '1000', 'sbadmin', true);
+  await ctx.route('**/api/admin/users', (route) => route.fulfill({
+    status: 500,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: { code: 'load_failed', message: 'Konten konnten nicht geladen werden.' } }),
+  }));
+  const page = await ctx.newPage();
+  await page.goto('/admin');
+  await expect(page.getByText('Einladungskette konnte nicht geladen werden.')).toBeVisible();
+  await expect(page.locator('.admin-user-slot').getByRole('button', { name: 'Wiederholen' })).toBeVisible();
+  await ctx.close();
+});
+
+test('full invite capacity shows one status line', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  await loginAs(ctx, '6002', 'full_user');
+  await ctx.route('**/api/invites', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ link: 'http://localhost:12174/invite/full', used: 5, max: 5, invitees: [] }),
+  }));
+  const page = await ctx.newPage();
+  await page.goto('/invites');
+  await expect(page.locator('.invite-capacity')).toBeEmpty();
+  await expect(page.locator('.invite-full')).toHaveText('Alle Plätze vergeben');
+  await expect(page.getByText('noch 0 von 5 Plätzen frei')).toHaveCount(0);
+  await ctx.close();
 });
 
 test('admin can inspect and filter an invite branch', async ({ browser, request }) => {

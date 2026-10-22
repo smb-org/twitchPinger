@@ -92,7 +92,7 @@ function visibleRows(roots: TreeNode<AdminUser>[], expanded: Set<string>, baseDe
   return rows;
 }
 
-export function InviteChain({ users }: { users: AdminUser[] | undefined }) {
+export function InviteChain({ users, error = false }: { users: AdminUser[] | undefined; error?: boolean }) {
   const roots = useMemo(() => users ? buildForest(users) : [], [users]);
   const longest = useMemo(() => longestPath(roots), [roots]);
   const byId = useMemo(() => new Map(roots.flatMap(descendants).map((node) => [node.user.id, node])), [roots]);
@@ -169,7 +169,7 @@ export function InviteChain({ users }: { users: AdminUser[] | undefined }) {
 
       <div class="invite-tree-head">
         <div class="invite-tree-summary">
-          <span class="mono muted" aria-live="polite">{users ? `${count} Nutzer · ${depth} Ebenen tief` : 'Lade Einladungskette …'}</span>
+          <span class="mono muted" aria-live="polite">{users ? `${count} Nutzer · ${depth} Ebenen tief` : error ? 'Einladungskette konnte nicht geladen werden.' : 'Lade Einladungskette …'}</span>
           <button class="btn ghost sm invite-all" disabled={!selected} onClick={() => select(null)}>{allButtonLabel}</button>
         </div>
         <div class="invite-tree-columns mono muted">

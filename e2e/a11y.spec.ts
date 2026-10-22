@@ -2,10 +2,11 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 import { loginAs } from './helpers.ts';
 
-for (const path of ['/login', '/', '/rules/new', '/channels', '/targets', '/invites']) {
+for (const path of ['/login', '/', '/rules/new', '/channels', '/targets', '/invites', '/admin']) {
   test(`axe wcag2a/aa ${path}`, async ({ browser }) => {
     const ctx = await browser.newContext();
-    if (path !== '/login') await loginAs(ctx, '6001', 'a11y_user');
+    if (path === '/admin') await loginAs(ctx, '6003', 'a11y_admin', true);
+    else if (path !== '/login') await loginAs(ctx, '6001', 'a11y_user');
     const page = await ctx.newPage();
     await page.goto(path);
     await expect(page.locator('h1').first()).toBeVisible();
