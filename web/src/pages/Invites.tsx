@@ -1,74 +1,62 @@
 import { useState } from 'preact/hooks';
-import { api, ApiError, errText, meStore } from '../api.ts';
-import type { InviteDto } from '../api.ts';
-import { ConfirmButton, LoadError, PageHead, Placeholder, copy, inFuture, toast, useLoad, useTitle } from '../ui.tsx';
-
-const STATUS = { open: 'offen', used: 'benutzt', expired: 'abgelaufen', revoked: 'widerrufen' } as const;
+import { api, errText } from '../api.ts';
+import type { InvitesDto } from '../api.ts';
+import { ConfirmButton, LoadError, PageHead, Placeholder, copy, toast, useLoad, useTitle } from '../ui.tsx';
 
 export function Invites() {
   useTitle('Einladungen');
-  const me = meStore.get()!;
-  const l = useLoad(() => api<{ invites: InviteDto[] }>('GET', '/invites'), []);
-  const [links, setLinks] = useState<Record<string, string>>({});
-  const [fresh, setFresh] = useState<string | null>(null);
+  const l = useLoad(() => api<InvitesDto>('GET', '/invites'), []);
   const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const invites = l.data?.invites;
-  const open = invites?.filter((i) => i.status === 'open').length ?? 0;
-  const left = Math.max(0, me.limits.MAX_OPEN_INVITES - open);
 
-  async function create() {
+  async function reset() {
     setBusy(true);
-    setErr(null);
     try {
-      const r = await api<{ id: string; link: string }>('POST', '/invites');
-      setLinks((x) => ({ ...x, [r.id]: r.link }));
-      setFresh(r.link);
+      await api<{ link: string }>('POST', '/invites/reset');
+      toast('Neuer Link erzeugt');
       await l.reload();
     } catch (e) {
-      setErr(errText(e));
-      if (e instanceof ApiError && e.code !== 'limit_invites') toast(errText(e), 'error');
+      toast(errText(e), 'error');
     } finally { setBusy(false); }
   }
-  async function revoke(i: InviteDto) {
-    try {
-      await api('DELETE', `/invites/${encodeURIComponent(i.id)}`);
-      toast('Einladung widerrufen');
-      await l.reload();
-    } catch (e) { toast(errText(e), 'error'); }
-  }
+
   return (
     <div class="page">
       <PageHead title="Einladungen">
-        <button class="btn" onClick={create} disabled={busy || left === 0 || !invites}>
-          {busy ? 'Erzeuge…' : `Einladung erzeugen (noch ${left} von ${me.limits.MAX_OPEN_INVITES})`}
-        </button>
+        <ConfirmButton label="Neuen Link erzeugen" onConfirm={reset} disabled={busy || !l.data} />
       </PageHead>
-      <div class="slot slim">
-        {fresh ? (
-          <div class="inline-row">
-            <code class="mono grow url">{fresh}</code>
-            <button class="btn ghost" onClick={() => copy(fresh)}>Kopieren</button>
-          </div>
+      <div class="slot slim invite-link-slot">
+        {l.data ? (
+          <>
+            <div class="inline-row invite-link-row">
+              <code class="mono grow url" title={l.data.link}>{l.data.link}</code>
+              <button class="btn ghost" onClick={() => copy(l.data!.link)}>Kopieren</button>
+            </div>
+            <p class="muted invite-capacity">{l.data.max === null ? 'unbegrenzt' : `noch ${Math.max(0, l.data.max - l.data.used)} von ${l.data.max} Plätzen frei`}</p>
+            <p class={l.data.max !== null && l.data.used >= l.data.max ? 'muted invite-full' : 'invite-full invite-full-empty'}>
+              {l.data.max !== null && l.data.used >= l.data.max ? 'Alle Plätze vergeben' : ''}
+            </p>
+          </>
+        ) : l.error ? (
+          <LoadError error={l.error} retry={l.reload} />
         ) : (
-          <p class="muted">Der volle Link ist nur direkt nach dem Erzeugen sichtbar. Kopiere ihn sofort.</p>
+          <Placeholder rows={1} />
         )}
-        <p class="err" aria-live="polite">{err ?? (invites && left === 0 ? 'Limit erreicht: widerrufe eine offene Einladung, um eine neue zu erzeugen.' : '')}</p>
       </div>
-      {!invites && !l.error && <Placeholder rows={3} />}
-      {!invites && l.error && <LoadError error={l.error} retry={l.reload} />}
-      {invites?.length === 0 && <p class="muted">Noch keine Einladungen.</p>}
-      <ul class="list">
-        {invites?.map((i) => (
-          <li class="row invite" key={i.id}>
-            <span class="mono">…/invite/{i.id.slice(0, 6)}…</span>
-            <span class="copycell">{links[i.id] ? <button class="btn ghost" onClick={() => copy(links[i.id]!)}>Kopieren</button> : <span class="muted">–</span>}</span>
-            <span class="mono">{i.status === 'open' ? `läuft ab ${inFuture(i.expiresAt)}` : ''}</span>
-            <span class="grow">{i.status === 'used' ? <>benutzt von <span class="mono">@{i.usedBy ?? '?'}</span></> : STATUS[i.status]}</span>
-            {i.status === 'open' ? <ConfirmButton label="Widerrufen" onConfirm={() => revoke(i)} /> : <span class="confirm" />}
-          </li>
-        ))}
-      </ul>
+      <h2>Geworben</h2>
+      <div class="invitees-body">
+        {!l.data && !l.error && <Placeholder rows={3} />}
+        {l.data?.invitees.length === 0 && <p class="muted invite-empty">Noch niemand über deinen Link dabei.</p>}
+        <ul class="list invitees-list">
+          {l.data?.invitees.map((invitee) => (
+            <li class="row invitee" key={invitee.login}>
+              <span class="mono invitee-login">@{invitee.login}</span>
+              <time class="mono muted invitee-date" dateTime={new Date(invitee.createdAt).toISOString()}>
+                {new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium' }).format(new Date(invitee.createdAt))}
+              </time>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

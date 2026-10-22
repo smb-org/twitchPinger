@@ -42,14 +42,15 @@ export async function api<T = unknown>(method: string, path: string, body?: unkn
 }
 export const errText = (e: unknown) => (e instanceof ApiError ? e.message : 'Unbekannter Fehler.');
 
-export interface Limits { MAX_ACCOUNTS: number; MAX_CHANNELS_TOTAL: number; MAX_CHANNELS_PER_USER: number; MAX_RULES_PER_USER: number; MAX_OPEN_INVITES: number; INVITE_TTL_DAYS: number; MIN_COOLDOWN_SEC: number; REGEX_MAX_LEN: number }
+export interface Limits { MAX_ACCOUNTS: number; MAX_CHANNELS_TOTAL: number; MAX_CHANNELS_PER_USER: number; MAX_RULES_PER_USER: number; MAX_INVITEES_PER_USER: number; MIN_COOLDOWN_SEC: number; REGEX_MAX_LEN: number }
 export interface Channel { id: string; login: string; displayName: string }
 export interface Me {
   user: { id: string; login: string; displayName: string };
   version: string;
   isAdmin: boolean;
   limits: Limits;
-  counts: { channels: number; rules: number; targets: number; openInvites: number };
+  counts: { channels: number; rules: number; targets: number };
+  invites: { points: number; used: number; max: number | null };
   onboarding: { hasChannel: boolean; hasTarget: boolean; hasRule: boolean };
   discordDm: { available: boolean; username: string | null };
   followSuggestions: Channel[];
@@ -64,7 +65,7 @@ export interface RuleLive { channelId: string; channel: string | null; inWindow:
 export type OverviewRule = Rule & { lastFired: Fired[]; live: RuleLive[] };
 export interface Ping { hitId: number; firedAt: number; ruleId: string; ruleName: string; channelId: string; channel: string | null; count: number; sentTs: number | null; hasTargets: boolean; results: { targetId: string; ok: boolean; ts: number; targetName: string | null }[] }
 export interface TargetDto { id: string; kind: TargetKind; name: string; url: string; failCount: number; status: 'ok' | 'failing' | 'unlinked' | 'unavailable'; failureHint: string | null }
-export interface InviteDto { id: string; createdAt: number; expiresAt: number; usedAt: number | null; usedBy: string | null; status: 'open' | 'used' | 'revoked' | 'expired' }
+export interface InvitesDto { link: string; used: number; max: number | null; invitees: { login: string; createdAt: number }[] }
 export interface AdminUser { id: string; login: string; displayName: string; isAdmin: boolean; locked: boolean; invitedBy: string | null; createdAt: number; ruleCount: number; channelCount: number }
 export interface AdminChannel { id: string; login: string; displayName: string; avatarUrl: string | null; users: number; rules: number; joined: boolean }
 export interface PreviewMsg { sentAt: number; userId: string; login: string; displayName: string; text: string; badges: Badge[] }
