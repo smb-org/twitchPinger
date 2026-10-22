@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { nextTwitchUser } from './helpers.ts';
+import { loginAs, nextTwitchUser } from './helpers.ts';
 
 test('login explains that new accounts require an invitation', async ({ page }) => {
   await page.goto('/login?error=no_invite');
@@ -56,4 +56,45 @@ test('personal link: admin shares, two users redeem, reset kills old link', asyn
   await ap.goto('/invites');
   await expect(ap.getByTitle(/^Werbepunkte/)).toHaveText('◆ 2');
   await Promise.all([admin.close(), u1.close(), u2.close(), u3.close()]);
+});
+
+test('admin can inspect and filter an invite branch', async ({ browser, request }) => {
+  const admin = await browser.newContext();
+  await loginAs(admin, '1000', 'sbadmin', true);
+  const ap = await admin.newPage();
+  await ap.goto('/invites');
+  const adminLink = (await ap.locator('code.url').textContent())!.trim();
+
+  const u1 = await browser.newContext();
+  const p1 = await u1.newPage();
+  await nextTwitchUser(request, '4101', 'chain_one');
+  await p1.goto(adminLink);
+  await p1.getByRole('link', { name: 'Mit Twitch anmelden' }).click();
+  await expect(p1).toHaveURL(/\/onboarding$/);
+  await p1.goto('/invites');
+  const u1Link = (await p1.locator('code.url').textContent())!.trim();
+
+  const u2 = await browser.newContext();
+  const p2 = await u2.newPage();
+  await nextTwitchUser(request, '4102', 'chain_two');
+  await p2.goto(u1Link);
+  await p2.getByRole('link', { name: 'Mit Twitch anmelden' }).click();
+  await expect(p2).toHaveURL(/\/onboarding$/);
+
+  await ap.goto('/admin');
+  await expect(ap.getByRole('heading', { name: 'Einladungskette' })).toBeVisible();
+  await ap.getByRole('button', { name: /chain_one.*Ast/ }).click();
+  const tree = ap.getByRole('list', { name: 'Einladungskette' });
+  await expect(tree.getByText('@chain_one')).toBeVisible();
+  await expect(tree.getByText('@chain_two')).toBeVisible();
+  await expect(tree.getByText('@sbadmin')).toHaveCount(0);
+  const row = tree.locator('li').filter({ hasText: '@chain_one' });
+  await expect(row.getByRole('button', { name: /Äste von @chain_one/ })).toHaveAttribute('aria-expanded', 'true');
+  await expect(row.locator('.invite-tree-direct')).toContainText('1');
+  await expect(row.locator('.invite-tree-size')).toContainText('1');
+  await expect(row.locator('.invite-tree-points')).toContainText('1');
+  await ap.getByRole('button', { name: 'Alle' }).click();
+  await expect(tree.getByText('@sbadmin')).toBeVisible();
+
+  await Promise.all([admin.close(), u1.close(), u2.close()]);
 });
