@@ -19,14 +19,6 @@ export function ago(ts: number, now = Date.now()): string {
   const d = Math.floor(s / 86400);
   return `vor ${d} ${d === 1 ? 'Tag' : 'Tagen'}`;
 }
-export function inFuture(ts: number, now = Date.now()): string {
-  const s = Math.round((ts - now) / 1000);
-  if (s < 3600) return 'in weniger als 1 Std';
-  if (s < 86400) return `in ${Math.floor(s / 3600)} Std`;
-  const d = Math.floor(s / 86400);
-  return `in ${d} ${d === 1 ? 'Tag' : 'Tagen'}`;
-}
-
 // ---- toasts ----
 interface T { id: number; text: string; kind: 'ok' | 'error'; action?: { label: string; run: () => void } }
 const toasts = store<T[]>([]);

@@ -55,7 +55,7 @@ export function Admin() {
           )}
         </div>
       </section>
-      <InviteChain users={users} />
+      <InviteChain users={users} error={Boolean(l.error)} />
       <div class="admin-user-slot">
         {!users && !l.error && <div class="admin-user-placeholder"><Placeholder rows={4} /></div>}
         {!users && l.error && <LoadError error={l.error} retry={l.reload} />}

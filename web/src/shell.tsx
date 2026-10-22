@@ -60,7 +60,7 @@ function StatusStrip({ me, version, versionText }: { me: Me | null; version: str
       </div>
       <div class="strip-user">
         <span class="app-version mobile-version" title={version}>{versionText}</span>
-        {me && <span class="mono strip-points" title="Werbepunkte: 1 pro geworbener Person, ½ für deren Geworbene, ¼ eine Ebene tiefer …">◆ {formatPoints(me.invites.points)}</span>}
+        {me && <span class="mono strip-points" title="Werbepunkte: 1 pro geworbener Person, ½ für deren Geworbene, ¼ eine Ebene tiefer …" aria-label={`Werbepunkte: ${formatPoints(me.invites.points)}`}><span aria-hidden="true">◆</span> {formatPoints(me.invites.points)}</span>}
         {me && <span class="mono hide-sm">@{me.user.login}</span>}
         {me?.isAdmin && <Link href="/admin" class="strip-btn">Admin</Link>}
         {me && <button class="strip-btn" onClick={logout}>Abmelden</button>}

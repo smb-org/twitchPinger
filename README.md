@@ -4,7 +4,7 @@ Twitch-Chat-Trigger mit Benachrichtigung: Zuschauer melden sich per Twitch an, w
 
 ## Funktionen
 
-- Anmeldung mit Twitch, nur per Einladung (der Admin erzeugt Einladungslinks).
+- Anmeldung mit Twitch, nur per Einladung. Jeder Nutzer hat einen persönlichen Einladungslink mit 5 Plätzen; für den Admin ist die Zahl unbegrenzt.
 - Channel-Auswahl; ein zentraler, anonymer Chat-Leser joint jeden Channel genau einmal, egal wie viele Nutzer ihn abonnieren.
 - Regeln pro Nutzer: Schlüsselwort, Regex oder Builder, Filter nach Badges und Login-Namen.
 - Häufungsschwelle: Auslösung erst, wenn eine Mindestzahl verschiedener Chatter innerhalb eines Zeitfensters passt; einzelne Spammer lösen nichts aus.
@@ -53,7 +53,7 @@ web          Preact-SPA
    docker compose pull && docker compose up -d
    ```
    Wer selbst bauen will: `docker compose up -d --build`.
-5. Mit dem Twitch-Account anmelden, dessen User-ID in `ADMIN_TWITCH_USER_ID` steht – dieser Account wird Admin. Danach Einladungslinks erzeugen und an weitere Nutzer verteilen.
+5. Mit dem Twitch-Account anmelden, dessen User-ID in `ADMIN_TWITCH_USER_ID` steht – dieser Account wird Admin. Danach den eigenen Einladungslink unter *Einladungen* teilen.
 
 Der App-Port ist nur an `127.0.0.1:12080` gebunden; der Zugriff von außen läuft ausschließlich über den Tunnel. Daten (SQLite, Backups) liegen im Volume `app-data`. Backups lassen sich zusätzlich nach Cloudflare R2 hochladen.
 

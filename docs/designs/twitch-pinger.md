@@ -409,6 +409,7 @@ C) Offen für alle
 State: approved
 Actual answer: B) Einladungslinks (D4, sb 2026-10-19)
 Accepted scope: Einmal-Einladungslinks, erzeugbar von Admin und Mitgliedern; ohne gültige Einladung kein Konto; Admin kann Konten sperren.
+Abgelöst am 2026-10-22 durch persönliche Einladungslinks, siehe docs/superpowers/specs/2026-10-22-invite-chain-design.md
 History: —
 
 ### R5: E2E-Tiefe

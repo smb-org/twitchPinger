@@ -45,7 +45,7 @@ p { margin: 0 0 8px; }
 .strip-state.error { color: var(--error); }
 .strip-state.warn { color: var(--warning); }
 .strip-user { display: flex; align-items: center; gap: 4px; color: var(--muted); }
-.strip-points { min-width: 5ch; color: var(--muted); text-align: right; white-space: nowrap; }
+.strip-points { min-width: 5ch; margin-left: 8px; color: var(--muted); text-align: right; white-space: nowrap; }
 .strip-btn { background: none; border: 0; color: var(--muted); padding: 0 12px; height: 100%; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
 .strip-btn:hover { color: var(--text); }
 .nav { grid-area: nav; display: flex; flex-direction: column; gap: 4px; padding: 16px 8px; border-right: 1px solid var(--line); overflow: auto; }
@@ -203,8 +203,6 @@ legend { padding: 0; }
 .testcell { display: inline-flex; align-items: center; gap: 8px; width: 330px; }
 .tstate { font-size: 0.875rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tstate.ok { color: var(--success); } .tstate.err { color: var(--error); }
-.copycell { min-width: 112px; }
-.row.invite > span:nth-child(3) { min-width: 190px; }
 .help { border-top: 1px solid var(--line); padding-top: 12px; margin-bottom: 12px; }
 .help ol { margin: 0 0 12px; padding-left: 22px; }
 .hint-line { font-size: 0.875rem; }
@@ -299,10 +297,10 @@ tr.glut > td { animation: glut 1.2s ease-out; }
   .panel.form > .panel-body { overflow: visible; }
   .page-head .actions { gap: 4px; }
   .toasts { bottom: calc(var(--bar) + 16px); }
-  .row.target, .row.invite, .row.admin { flex-wrap: wrap; padding: 8px 0; }
+  .row.target, .row.admin { flex-wrap: wrap; padding: 8px 0; }
   .testcell { width: 100%; }
   .tstat { min-width: 0; }
-  .invite-chain { --invite-columns: 32px 32px 92px; --invite-column-gap: 4px; --invite-metrics-width: 164px; }
+  .invite-chain { --invite-columns: 40px 32px 88px; --invite-column-gap: 4px; --invite-metrics-width: 168px; }
   .invite-tree-row { gap: 4px; }
   .invite-tree-guide { font-size: 0.6875rem; }
   .invite-tree-toggle, .invite-tree-toggle-spacer { width: 24px; }
