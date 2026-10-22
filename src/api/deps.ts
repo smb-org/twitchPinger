@@ -16,7 +16,7 @@ export interface ApiConfig {
   insecureCookies: boolean;
   limits: {
     MAX_ACCOUNTS: number; MAX_CHANNELS_TOTAL: number; MAX_CHANNELS_PER_USER: number; MAX_RULES_PER_USER: number;
-    MAX_OPEN_INVITES: number; INVITE_TTL_DAYS: number; MIN_COOLDOWN_SEC: number; REGEX_MAX_LEN: number;
+    MAX_INVITEES_PER_USER: number; MIN_COOLDOWN_SEC: number; REGEX_MAX_LEN: number;
   };
 }
 

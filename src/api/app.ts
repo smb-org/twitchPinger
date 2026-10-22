@@ -1,11 +1,12 @@
-import { randomBytes, randomInt } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { Badge, ChatMessage, Hit, MatchMode, Rule, Target, TargetKind } from '../types.ts';
 import type { RuleInput, UserRow } from '../db/repo.ts';
+import { pointsFor } from '../invite-tree.ts';
 import type { ApiDeps } from './deps.ts';
-import { DISCORD_STATE_COOKIE, SESSION_COOKIE, SESSION_TTL_MS, STATE_COOKIE, hashSessionId, newSessionId, randomId, sha256, signDiscordState, signState, verifyDiscordState, verifyState } from './session.ts';
+import { DISCORD_STATE_COOKIE, SESSION_COOKIE, SESSION_TTL_MS, STATE_COOKIE, hashSessionId, newSessionId, randomId, signDiscordState, signState, verifyDiscordState, verifyState } from './session.ts';
 
 type Env = { Variables: { user: UserRow; sessionHash: string } };
 type Ctx = Context<Env>;
@@ -15,7 +16,6 @@ const BADGES: Badge[] = ['broadcaster', 'moderator', 'vip', 'subscriber'];
 const MODES: MatchMode[] = ['contains', 'word', 'prefix', 'regex'];
 const LOGIN_RE = /^[a-z0-9_]{3,25}$/;
 const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
-const DAY = 86_400_000;
 const TEST_COOLDOWN_MS = 10_000;
 const TEST_HOUR_MS = 3_600_000;
 const TESTS_PER_USER_HOUR = 20;
@@ -156,15 +156,15 @@ export function createApi(deps: ApiDeps) {
         return fail(reason);
       };
       if (!st.invite) return rejectNewLogin('no_invite');
-      const inv = st.invite ? repo.getInviteByHash(sha256(st.invite)) : undefined;
-      if (!inv || inv.revoked) return rejectNewLogin('invite_invalid');
-      if (inv.usedBy) return rejectNewLogin('invite_used');
-      if (inv.expiresAt <= t) return rejectNewLogin('invite_expired');
+      const inviter = st.invite ? repo.getUserByInviteCode(st.invite) : undefined;
+      if (!inviter || inviter.locked) return rejectNewLogin('invite_invalid');
       if (repo.countUsers() >= config.limits.MAX_ACCOUNTS) return rejectNewLogin('accounts_full');
-      repo.tx(() => {
-        repo.createUser({ id: tu.id, login: tu.login, displayName: tu.displayName, isAdmin: false, invitedBy: inv.createdBy, now: t });
-        repo.markInviteUsed(inv.id, tu.id, t);
+      const created = repo.tx(() => {
+        if (!inviter.isAdmin && repo.countInvitees(inviter.id) >= config.limits.MAX_INVITEES_PER_USER) return false;
+        repo.createUser({ id: tu.id, login: tu.login, displayName: tu.displayName, isAdmin: false, invitedBy: inviter.id, now: t });
+        return true;
       });
+      if (!created) return rejectNewLogin('invite_full');
       isNew = true;
     }
 
@@ -229,10 +229,11 @@ export function createApi(deps: ApiDeps) {
 
   app.get('/me', (c) => {
     const u = me(c);
-    const counts = { channels: repo.countUserChannels(u.id), rules: repo.countRules(u.id), targets: repo.countTargets(u.id), openInvites: repo.countOpenInvites(u.id, now()) };
+    const counts = { channels: repo.countUserChannels(u.id), rules: repo.countRules(u.id), targets: repo.countTargets(u.id) };
+    const invites = { points: pointsFor(repo.listInviteEdges(), u.id), used: repo.countInvitees(u.id), max: u.isAdmin ? null : config.limits.MAX_INVITEES_PER_USER };
     const s = repo.getSession(c.get('sessionHash'), now());
     return c.json({
-      user: userDto(u), isAdmin: u.isAdmin, limits: config.limits, counts,
+      user: userDto(u), isAdmin: u.isAdmin, limits: config.limits, counts, invites,
       version: config.version,
       onboarding: { hasChannel: counts.channels > 0, hasTarget: counts.targets > 0, hasRule: counts.rules > 0 },
       discordDm: { available: discordAvailable, username: discordAvailable ? repo.getDiscordLink(u.id)?.username ?? null : null },
@@ -477,29 +478,14 @@ export function createApi(deps: ApiDeps) {
 
   // ---- invites ----
   app.get('/invites', (c) => {
-    const t = now();
-    const invites = repo.listInvites(me(c).id).map((i) => ({
-      id: i.id, createdAt: i.createdAt, expiresAt: i.expiresAt, usedAt: i.usedAt,
-      usedBy: i.usedBy ? repo.getUser(i.usedBy)?.login ?? null : null,
-      status: i.usedBy ? 'used' : i.revoked ? 'revoked' : i.expiresAt <= t ? 'expired' : 'open',
-    }));
-    return c.json({ invites });
-  });
-
-  app.post('/invites', (c) => {
     const u = me(c);
-    const t = now();
-    if (repo.countOpenInvites(u.id, t) >= config.limits.MAX_OPEN_INVITES) throw new ApiError(409, 'limit_invites', `Du kannst höchstens ${config.limits.MAX_OPEN_INVITES} offene Einladungen haben.`);
-    const code = randomBytes(18).toString('base64url');
-    const id = randomId();
-    const expiresAt = t + config.limits.INVITE_TTL_DAYS * DAY;
-    repo.createInvite({ id, codeHash: sha256(code), createdBy: u.id, now: t, expiresAt });
-    return c.json({ id, code, link: `${config.publicUrl}/invite/${code}`, expiresAt }, 201);
+    const invitees = repo.listInvitees(u.id);
+    return c.json({ link: `${config.publicUrl}/invite/${u.inviteCode}`, used: invitees.length, max: u.isAdmin ? null : config.limits.MAX_INVITEES_PER_USER, invitees });
   });
 
-  app.delete('/invites/:id', (c) => {
-    if (!repo.revokeInvite(c.req.param('id'), me(c).id)) throw notFound('Einladung');
-    return c.json({ ok: true });
+  app.post('/invites/reset', (c) => {
+    const code = repo.resetInviteCode(me(c).id);
+    return c.json({ link: `${config.publicUrl}/invite/${code}` });
   });
 
   // ---- admin ----

@@ -24,13 +24,34 @@ test('migrations set user_version and are idempotent', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tp-'));
   openDb(join(dir, 'a.db')).close();
   const db = openDb(join(dir, 'a.db'));
-  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 4);
+  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 5);
+});
+
+test('invite migration assigns unique personal codes and revokes unused legacy invites', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'tp-')), 'old.db');
+  const old = new DatabaseSync(path);
+  old.exec(`
+    CREATE TABLE users (id TEXT PRIMARY KEY, login TEXT NOT NULL, display_name TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0, locked INTEGER NOT NULL DEFAULT 0, invited_by TEXT, created_at INTEGER NOT NULL);
+    CREATE TABLE invites (id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, created_by TEXT NOT NULL REFERENCES users(id), created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_by TEXT, used_at INTEGER, revoked INTEGER NOT NULL DEFAULT 0);
+    INSERT INTO users VALUES ('u1', 'one', 'One', 0, 0, NULL, 1), ('u2', 'two', 'Two', 0, 0, NULL, 2);
+    INSERT INTO invites VALUES ('open', 'hash-open', 'u1', 1, 100, NULL, NULL, 0), ('used', 'hash-used', 'u1', 1, 100, 'u2', 3, 0);
+    PRAGMA user_version = 4;
+  `);
+  old.close();
+
+  const db = openDb(path);
+  const rows = db.prepare('SELECT invite_code FROM users ORDER BY id').all() as { invite_code: string }[];
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((row) => /^[0-9a-f]{24}$/.test(row.invite_code)));
+  assert.equal(new Set(rows.map((row) => row.invite_code)).size, 2);
+  assert.deepEqual((db.prepare('SELECT id, revoked FROM invites ORDER BY id').all() as { id: string; revoked: number }[]).map((row) => [row.id, row.revoked]), [['open', 1], ['used', 0]]);
+  db.close();
 });
 
 test('migration adds avatar_url and skip_if_self without losing existing rows', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'tp-')), 'old.db');
   const old = new DatabaseSync(path);
-  old.exec("CREATE TABLE channels (id TEXT PRIMARY KEY, login TEXT NOT NULL, display_name TEXT NOT NULL, added_at INTEGER NOT NULL); INSERT INTO channels VALUES ('c1', 'one', 'One', 7); CREATE TABLE rules (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, matcher_json TEXT NOT NULL, sender_json TEXT NOT NULL, burst_json TEXT NOT NULL, cooldown_sec INTEGER NOT NULL, channel_ids_json TEXT NOT NULL, target_ids_json TEXT NOT NULL, updated_at INTEGER NOT NULL); INSERT INTO rules VALUES ('legacy', 'u1', 'legacy', 1, '{}', '{}', '{}', 60, '[]', '[]', 1); PRAGMA user_version = 2;");
+  old.exec("CREATE TABLE channels (id TEXT PRIMARY KEY, login TEXT NOT NULL, display_name TEXT NOT NULL, added_at INTEGER NOT NULL); INSERT INTO channels VALUES ('c1', 'one', 'One', 7); CREATE TABLE rules (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, matcher_json TEXT NOT NULL, sender_json TEXT NOT NULL, burst_json TEXT NOT NULL, cooldown_sec INTEGER NOT NULL, channel_ids_json TEXT NOT NULL, target_ids_json TEXT NOT NULL, updated_at INTEGER NOT NULL); INSERT INTO rules VALUES ('legacy', 'u1', 'legacy', 1, '{}', '{}', '{}', 60, '[]', '[]', 1); CREATE TABLE users (id TEXT PRIMARY KEY, login TEXT NOT NULL, display_name TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0, locked INTEGER NOT NULL DEFAULT 0, invited_by TEXT, created_at INTEGER NOT NULL); CREATE TABLE invites (id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_by TEXT, used_at INTEGER, revoked INTEGER NOT NULL DEFAULT 0); PRAGMA user_version = 2;");
   old.close();
 
   const db = openDb(path);

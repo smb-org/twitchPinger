@@ -55,7 +55,7 @@ test('loadConfig: defaults in dev, required vars in production', () => {
 });
 
 test('loadConfig: only the three count limits are env-configurable', () => {
-  const c = loadConfig({ MAX_ACCOUNTS: '3', MAX_CHANNELS_TOTAL: '4', MAX_CHANNELS_PER_USER: '2', MIN_COOLDOWN_SEC: '1', REGEX_MAX_LEN: '9999', MAX_RULES_PER_USER: '1', MAX_OPEN_INVITES: '1', INVITE_TTL_DAYS: '1' });
+  const c = loadConfig({ MAX_ACCOUNTS: '3', MAX_CHANNELS_TOTAL: '4', MAX_CHANNELS_PER_USER: '2', MIN_COOLDOWN_SEC: '1', REGEX_MAX_LEN: '9999', MAX_RULES_PER_USER: '1', MAX_INVITEES_PER_USER: '1' });
   assert.deepEqual([c.limits.MAX_ACCOUNTS, c.limits.MAX_CHANNELS_TOTAL, c.limits.MAX_CHANNELS_PER_USER], [3, 4, 2]);
-  assert.deepEqual([c.limits.MIN_COOLDOWN_SEC, c.limits.REGEX_MAX_LEN, c.limits.MAX_RULES_PER_USER, c.limits.MAX_OPEN_INVITES, c.limits.INVITE_TTL_DAYS], [30, 200, 20, 5, 7]);
+  assert.deepEqual([c.limits.MIN_COOLDOWN_SEC, c.limits.REGEX_MAX_LEN, c.limits.MAX_RULES_PER_USER, c.limits.MAX_INVITEES_PER_USER], [30, 200, 20, 5]);
 });

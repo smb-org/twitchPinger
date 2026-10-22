@@ -25,4 +25,4 @@ export interface Hit {
 /** Snapshot of the chat reader connection state. */
 export interface ReaderHealth { connected: boolean; since: number; joined: number; desired: number; lastMessageAt: number | null; }
 /** Default operational limits (overridable via env). */
-export const LIMITS_DEFAULTS = { MAX_ACCOUNTS: 100, MAX_CHANNELS_TOTAL: 50, MAX_CHANNELS_PER_USER: 10, MAX_RULES_PER_USER: 20, MAX_OPEN_INVITES: 5, INVITE_TTL_DAYS: 7, MIN_COOLDOWN_SEC: 30, REGEX_MAX_LEN: 200 } as const;
+export const LIMITS_DEFAULTS = { MAX_ACCOUNTS: 100, MAX_CHANNELS_TOTAL: 50, MAX_CHANNELS_PER_USER: 10, MAX_RULES_PER_USER: 20, MAX_INVITEES_PER_USER: 5, MIN_COOLDOWN_SEC: 30, REGEX_MAX_LEN: 200 } as const;
