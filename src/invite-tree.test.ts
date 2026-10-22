@@ -37,6 +37,7 @@ test('longest path keeps the first path on a tie', () => {
 
 test('formatPoints', () => {
   assert.equal(formatPoints(3.75), '3,8');
+  assert.equal(formatPoints(1.96875), '2');
   assert.equal(formatPoints(2), '2');
   assert.equal(formatPoints(0), '0');
 });

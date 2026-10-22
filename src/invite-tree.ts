@@ -114,5 +114,6 @@ export function longestPath<U extends TreeUser>(roots: TreeNode<U>[]): Set<strin
 }
 
 export function formatPoints(p: number): string {
-  return Number.isInteger(p) ? String(p) : p.toFixed(1).replace('.', ',');
+  const r = Math.round(p * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1).replace('.', ',');
 }

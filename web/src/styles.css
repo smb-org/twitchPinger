@@ -45,6 +45,7 @@ p { margin: 0 0 8px; }
 .strip-state.error { color: var(--error); }
 .strip-state.warn { color: var(--warning); }
 .strip-user { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+.strip-points { min-width: 5ch; color: var(--muted); text-align: right; white-space: nowrap; }
 .strip-btn { background: none; border: 0; color: var(--muted); padding: 0 12px; height: 100%; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; }
 .strip-btn:hover { color: var(--text); }
 .nav { grid-area: nav; display: flex; flex-direction: column; gap: 4px; padding: 16px 8px; border-right: 1px solid var(--line); overflow: auto; }
@@ -131,6 +132,15 @@ legend { padding: 0; }
 .suggest { max-height: 320px; overflow: auto; }
 .slot { min-height: 280px; max-width: 720px; margin-bottom: 8px; }
 .slot.slim { min-height: 112px; }
+.invite-link-slot { display: flex; flex-direction: column; justify-content: center; }
+.invite-link-row { margin: 0; }
+.invite-capacity { min-height: 1.5rem; margin: 4px 0 0; }
+.invite-full { min-height: 1.5rem; margin: 0; }
+.invite-full-empty { visibility: hidden; }
+.invitees-body { height: 260px; max-width: 720px; overflow: auto; border-bottom: 1px solid var(--line); }
+.invite-empty { display: flex; align-items: center; justify-content: center; height: 100%; margin: 0; text-align: center; }
+.invitee-login { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invitee-date { flex: none; text-align: right; }
 .empty { padding: 24px 0; }
 .url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tname { min-width: 150px; }

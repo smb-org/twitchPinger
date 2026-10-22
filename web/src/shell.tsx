@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import type { ReaderHealth } from '../../src/types.ts';
+import { formatPoints } from '../../src/invite-tree.ts';
 import { api, meStore } from './api.ts';
 import type { Health, Me } from './api.ts';
 import { Link, navigate, useLocation } from './router.tsx';
@@ -59,6 +60,7 @@ function StatusStrip({ me, version, versionText }: { me: Me | null; version: str
       </div>
       <div class="strip-user">
         <span class="app-version mobile-version" title={version}>{versionText}</span>
+        {me && <span class="mono strip-points" title="Werbepunkte: 1 pro geworbener Person, ½ für deren Geworbene, ¼ eine Ebene tiefer …">◆ {formatPoints(me.invites.points)}</span>}
         {me && <span class="mono hide-sm">@{me.user.login}</span>}
         {me?.isAdmin && <Link href="/admin" class="strip-btn">Admin</Link>}
         {me && <button class="strip-btn" onClick={logout}>Abmelden</button>}
