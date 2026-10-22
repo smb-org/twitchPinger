@@ -127,6 +127,59 @@ legend { padding: 0; }
 .admin-avatar { display: block; width: 24px; height: 24px; flex: none; border-radius: 50%; object-fit: cover; background: var(--surface); }
 .admin-channel-state { font-size: 0.875rem; }
 .admin-channel-body .empty-text { padding: 64px 0; }
+.admin-user-slot { position: relative; min-height: 208px; }
+.admin-user-placeholder { position: absolute; inset: 0 auto auto 0; width: 100%; pointer-events: none; }
+.invite-chain { --invite-columns: 40px 40px 112px; --invite-column-gap: 12px; --invite-metrics-width: 216px; margin: 8px 0 24px; }
+.invite-chain > .admin-section-head { margin-bottom: 0; }
+.invite-icicle-scroll { height: 168px; overflow: auto; border-bottom: 1px solid var(--line); }
+.invite-icicle-content { position: relative; width: 100%; }
+.invite-depth-label { position: absolute; left: 0; width: 28px; height: 28px; line-height: 28px; color: var(--muted); font-size: 0.75rem; }
+.invite-icicle-canvas { position: relative; width: calc(100% - 36px); margin-left: 36px; }
+.invite-icicle-block { position: absolute; height: 26px; padding: 0 4px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: var(--muted); text-align: left; white-space: nowrap; cursor: pointer; container-type: inline-size; }
+.invite-icicle-block:hover { border-color: var(--text); color: var(--text); }
+.invite-icicle-block.longest { border-color: var(--accent); color: var(--accent); }
+.invite-icicle-block.selected { z-index: 2; outline: 1px solid var(--text); outline-offset: -2px; }
+.invite-icicle-label { display: none; overflow: hidden; text-overflow: ellipsis; }
+@container (min-width: 34px) { .invite-icicle-label { display: block; } }
+.invite-icicle-placeholder { height: 168px; padding-left: 36px; }
+.invite-icicle-placeholder span { display: block; height: 26px; margin-bottom: 2px; border: 1px solid var(--bg); border-radius: var(--r-sm); background: var(--surface); }
+.invite-icicle-placeholder span:nth-child(1) { width: 64%; }
+.invite-icicle-placeholder span:nth-child(2) { width: 42%; }
+.invite-icicle-placeholder span:nth-child(3) { width: 76%; }
+.invite-icicle-placeholder span:nth-child(4) { width: 52%; }
+.invite-icicle-placeholder span:nth-child(5) { width: 68%; }
+.invite-icicle-placeholder span:nth-child(6) { width: 34%; }
+.invite-icicle-empty { display: flex; height: 168px; align-items: center; justify-content: center; margin: 0; color: var(--muted); }
+.invite-tree-head { height: 68px; display: grid; grid-template-rows: 32px 36px; }
+.invite-tree-summary { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.invite-tree-summary > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invite-all { min-width: 56px; flex: none; }
+.invite-tree-columns, .invite-tree-metrics { display: grid; grid-template-columns: var(--invite-columns); column-gap: var(--invite-column-gap); width: var(--invite-metrics-width); flex: none; text-align: right; }
+.invite-tree-columns { align-items: end; margin-left: auto; padding-bottom: 4px; font-size: 0.75rem; }
+.invite-tree-scroll { height: 188px; overflow: auto; border-bottom: 1px solid var(--line); }
+.invite-tree-list { min-width: 0; list-style: none; margin: 0; padding: 0; }
+.invite-tree-row { display: flex; align-items: center; gap: 8px; min-height: 32px; border-bottom: 1px solid var(--line); }
+.invite-tree-person { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; }
+.invite-tree-guide { flex: none; color: var(--line); white-space: pre; font-size: 0.875rem; }
+.invite-tree-toggle, .invite-tree-toggle-spacer { display: inline-flex; width: 28px; height: 28px; flex: none; align-items: center; justify-content: center; }
+.invite-tree-toggle { padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
+.invite-tree-toggle:hover { color: var(--text); }
+.invite-tree-login { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invite-tree-login.longest { color: var(--accent); }
+.invite-tree-row.locked .invite-tree-login { color: var(--muted); }
+.invite-tree-locked { flex: none; font: 400 0.75rem/1.2 var(--f-body); }
+.invite-tree-metrics { align-items: center; font-size: 0.9375rem; }
+.invite-tree-points { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+.invite-points-bar { display: block; width: 52px; height: 4px; overflow: hidden; border-radius: 2px; background: var(--line); }
+.invite-points-bar > span { display: block; height: 100%; background: var(--accent); }
+.invite-tree-placeholder { height: 100%; display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
+.invite-tree-placeholder span { display: block; min-height: 0; flex: 1; background: var(--surface); }
+.invite-tree-placeholder span:nth-child(1) { width: 86%; }
+.invite-tree-placeholder span:nth-child(2) { width: 70%; }
+.invite-tree-placeholder span:nth-child(3) { width: 78%; }
+.invite-tree-placeholder span:nth-child(4) { width: 62%; }
+.invite-tree-placeholder span:nth-child(5) { width: 88%; }
+.invite-tree-placeholder span:nth-child(6) { width: 76%; }
 .state { min-width: 96px; text-align: right; }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
 .suggest { max-height: 320px; overflow: auto; }
@@ -249,6 +302,12 @@ tr.glut > td { animation: glut 1.2s ease-out; }
   .row.target, .row.invite, .row.admin { flex-wrap: wrap; padding: 8px 0; }
   .testcell { width: 100%; }
   .tstat { min-width: 0; }
+  .invite-chain { --invite-columns: 32px 32px 92px; --invite-column-gap: 4px; --invite-metrics-width: 164px; }
+  .invite-tree-row { gap: 4px; }
+  .invite-tree-guide { font-size: 0.6875rem; }
+  .invite-tree-toggle, .invite-tree-toggle-spacer { width: 24px; }
+  .invite-points-bar { width: 38px; }
+  .invite-tree-points { gap: 4px; }
 }
 @media (max-width: 1200px) and (min-width: 768px) { .overview { grid-template-columns: minmax(0, 1fr); } .pings { height: 280px; border-left: 0; padding-left: 0; } .cols2 { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }

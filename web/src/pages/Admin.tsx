@@ -1,6 +1,7 @@
 import { useEffect } from 'preact/hooks';
 import { api, errText, meStore } from '../api.ts';
 import type { AdminChannel, AdminUser } from '../api.ts';
+import { InviteChain } from '../invite-chain.tsx';
 import { navigate } from '../router.tsx';
 import { ConfirmButton, Dot, LoadError, PageHead, Placeholder, toast, useLoad, useTitle } from '../ui.tsx';
 
@@ -54,20 +55,23 @@ export function Admin() {
           )}
         </div>
       </section>
-      {!users && !l.error && <Placeholder rows={4} />}
-      {!users && l.error && <LoadError error={l.error} retry={l.reload} />}
-      <ul class="list">
-        {users?.map((u) => (
-          <li class="row admin" key={u.id}>
-            <span class="mono grow">{u.login}{u.isAdmin ? ' · Admin' : ''}</span>
-            <span class="mono muted">{u.ruleCount} Regeln · {u.channelCount} Channels</span>
-            <span class="tstat"><Dot kind={u.locked ? 'error' : 'ok'} /> {u.locked ? 'gesperrt' : 'aktiv'}</span>
-            {u.locked
-              ? <button class="btn ghost confirm" onClick={() => act(u, 'unlock')}>Entsperren</button>
-              : u.isAdmin ? <span class="confirm" /> : <ConfirmButton label="Sperren" onConfirm={() => act(u, 'lock')} />}
-          </li>
-        ))}
-      </ul>
+      <InviteChain users={users} />
+      <div class="admin-user-slot">
+        {!users && !l.error && <div class="admin-user-placeholder"><Placeholder rows={4} /></div>}
+        {!users && l.error && <LoadError error={l.error} retry={l.reload} />}
+        <ul class="list">
+          {users?.map((u) => (
+            <li class="row admin" key={u.id}>
+              <span class="mono grow">{u.login}{u.isAdmin ? ' · Admin' : ''}</span>
+              <span class="mono muted">{u.ruleCount} Regeln · {u.channelCount} Channels</span>
+              <span class="tstat"><Dot kind={u.locked ? 'error' : 'ok'} /> {u.locked ? 'gesperrt' : 'aktiv'}</span>
+              {u.locked
+                ? <button class="btn ghost confirm" onClick={() => act(u, 'unlock')}>Entsperren</button>
+                : u.isAdmin ? <span class="confirm" /> : <ConfirmButton label="Sperren" onConfirm={() => act(u, 'lock')} />}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
