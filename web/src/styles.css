@@ -160,7 +160,7 @@ legend { padding: 0; }
 .invite-tree-list { min-width: 0; list-style: none; margin: 0; padding: 0; }
 .invite-tree-row { display: flex; align-items: center; gap: 8px; min-height: 32px; border-bottom: 1px solid var(--line); }
 .invite-tree-person { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; }
-.invite-tree-guide { flex: none; color: var(--line); white-space: pre; font-size: 0.875rem; }
+.invite-tree-guide { flex: none; color: var(--line); white-space: pre; font-size: 0.875rem; font-family: var(--f-mono); }
 .invite-tree-toggle, .invite-tree-toggle-spacer { display: inline-flex; width: 28px; height: 28px; flex: none; align-items: center; justify-content: center; }
 .invite-tree-toggle { padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
 .invite-tree-toggle:hover { color: var(--text); }
