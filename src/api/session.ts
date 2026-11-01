@@ -18,7 +18,10 @@ function safeEqual(a: string, b: string): boolean {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-export interface OAuthState { state: string; invite: string | null }
+export interface OAuthState { state: string; invite: string | null; returnTo: string | null }
+
+/** Same-site relative path only (no open redirect), else null. */
+export const safeReturnTo = (p: unknown): string | null => typeof p === 'string' && p.length <= 200 && /^\/(?![/\\])[\x21-\x7e]*$/.test(p) ? p : null;
 
 export interface DiscordOAuthState { state: string; returnTo: '/onboarding' | '/targets' }
 
@@ -45,9 +48,9 @@ export function verifyDiscordState(secret: string, cookie: string | undefined, s
 }
 
 /** Signed, short-lived OAuth state cookie value: base64url(json).hmac */
-export function signState(secret: string, invite: string | null, now: number): { state: string; cookie: string } {
+export function signState(secret: string, invite: string | null, now: number, returnTo?: string | null): { state: string; cookie: string } {
   const state = randomBytes(24).toString('base64url');
-  const body = Buffer.from(JSON.stringify({ s: state, i: invite, e: now + STATE_TTL_MS })).toString('base64url');
+  const body = Buffer.from(JSON.stringify({ s: state, i: invite, r: safeReturnTo(returnTo), e: now + STATE_TTL_MS })).toString('base64url');
   return { state, cookie: `${body}.${mac(secret, body)}` };
 }
 
@@ -59,7 +62,7 @@ export function verifyState(secret: string, cookie: string | undefined, statePar
   try {
     const p = JSON.parse(Buffer.from(body, 'base64url').toString());
     if (typeof p.s !== 'string' || p.e <= now || !safeEqual(p.s, stateParam)) return null;
-    return { state: p.s, invite: typeof p.i === 'string' ? p.i : null };
+    return { state: p.s, invite: typeof p.i === 'string' ? p.i : null, returnTo: safeReturnTo(p.r) };
   } catch {
     return null;
   }

@@ -17,6 +17,11 @@ createServer(async (req, res) => {
     users.set(next.id, next.login);
     return send(200, { ok: true });
   }
+  if (u.pathname === '/mock/add-follow') {
+    const f = JSON.parse(raw);
+    follows.push({ broadcaster_id: f.id, broadcaster_login: f.login, broadcaster_name: f.login });
+    return send(200, { ok: true });
+  }
   if (u.pathname === '/oauth2/authorize') {
     const back = new URL(u.searchParams.get('redirect_uri')!);
     back.searchParams.set('code', `code-${next.id}`);

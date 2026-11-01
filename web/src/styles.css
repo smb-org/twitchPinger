@@ -185,6 +185,7 @@ legend { padding: 0; }
 .invite-tree-placeholder span:nth-child(6) { width: 76%; }
 .state { min-width: 96px; text-align: right; }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.suggest-head { margin: 0 0 8px; font-size: 0.875rem; text-align: right; }
 .suggest { max-height: 320px; overflow: auto; }
 .slot { min-height: 280px; max-width: 720px; margin-bottom: 8px; }
 .slot.slim { min-height: 112px; }

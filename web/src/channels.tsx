@@ -64,6 +64,8 @@ export function Suggestions({ c, big }: { c: ChannelsApi; big?: boolean }) {
   const have = new Set((c.channels ?? []).map((x) => x.id));
   const list = me.followSuggestions.filter((s) => !have.has(s.id));
   return (
+    <>
+    <p class="suggest-head"><a href={`/api/auth/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`}>Liste aktualisieren</a></p>
     <div class={`suggest${big ? ' big' : ''}`}>
       {list.length === 0 && <p class="muted">{me.followSuggestions.length ? 'Alle gefolgten Channels sind schon dabei.' : 'Keine gefolgten Channels gefunden.'}</p>}
       <ul class="list">
@@ -75,6 +77,7 @@ export function Suggestions({ c, big }: { c: ChannelsApi; big?: boolean }) {
         ))}
       </ul>
     </div>
+    </>
   );
 }
 

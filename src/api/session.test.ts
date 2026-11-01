@@ -20,7 +20,7 @@ test('session ids are random and stored hashed; expiry honoured', () => {
 
 test('state cookie: valid, tampered, wrong state, wrong secret, expired', () => {
   const { state, cookie } = signState('s'.repeat(32), 'INV', 1000);
-  assert.deepEqual(verifyState('s'.repeat(32), cookie, state, 2000), { state, invite: 'INV' });
+  assert.deepEqual(verifyState('s'.repeat(32), cookie, state, 2000), { state, invite: 'INV', returnTo: null });
   const [body, sig] = cookie.split('.');
   const forged = Buffer.from(JSON.stringify({ s: state, i: 'OTHER', e: 9e12 })).toString('base64url');
   assert.equal(verifyState('s'.repeat(32), `${forged}.${sig}`, state, 2000), null);
@@ -58,4 +58,14 @@ test('loadConfig: only the three count limits are env-configurable', () => {
   const c = loadConfig({ MAX_ACCOUNTS: '3', MAX_CHANNELS_TOTAL: '4', MAX_CHANNELS_PER_USER: '2', MIN_COOLDOWN_SEC: '1', REGEX_MAX_LEN: '9999', MAX_RULES_PER_USER: '1', MAX_INVITEES_PER_USER: '1' });
   assert.deepEqual([c.limits.MAX_ACCOUNTS, c.limits.MAX_CHANNELS_TOTAL, c.limits.MAX_CHANNELS_PER_USER], [3, 4, 2]);
   assert.deepEqual([c.limits.MIN_COOLDOWN_SEC, c.limits.REGEX_MAX_LEN, c.limits.MAX_RULES_PER_USER, c.limits.MAX_INVITEES_PER_USER], [30, 200, 20, 5]);
+});
+
+test('state cookie carries a safe returnTo only', () => {
+  const sec = 's'.repeat(32);
+  const ok = signState(sec, null, 1000, '/channels');
+  assert.deepEqual(verifyState(sec, ok.cookie, ok.state, 2000), { state: ok.state, invite: null, returnTo: '/channels' });
+  for (const bad of ['//evil.example', 'https://evil.example', '/\\evil', '/\t/evil.example', '/\n/x', '/\r/x', '/\x00/x', '/a b', '', 'x', '/' + 'a'.repeat(200)]) {
+    const s = signState(sec, null, 1000, bad);
+    assert.equal(verifyState(sec, s.cookie, s.state, 2000)!.returnTo, null, bad);
+  }
 });

@@ -26,6 +26,7 @@ const USERS: Record<string, { id: string; login: string; display_name: string }>
   nancy: { id: '13', login: 'nancy', display_name: 'Nancy' },
   oscar: { id: '14', login: 'oscar', display_name: 'Oscar' },
 };
+let FOLLOWS = [{ broadcaster_id: 'ch-marbles_one', broadcaster_login: 'marbles_one', broadcaster_name: 'Marbles_One' }];
 const CHANNELS = ['marbles_one', 'marbles_two', 'marbles_three', 'other_chan'];
 
 function fakeFetch(): typeof fetch {
@@ -43,7 +44,7 @@ function fakeFetch(): typeof fetch {
       const u = USERS[auth.replace('Bearer tok-', '')];
       return u ? json({ data: [u] }) : json({}, 401);
     }
-    if (url.pathname === '/helix/channels/followed') return json({ data: [{ broadcaster_id: 'ch-marbles_one', broadcaster_login: 'marbles_one', broadcaster_name: 'Marbles_One' }], pagination: {} });
+    if (url.pathname === '/helix/channels/followed') return json({ data: FOLLOWS, pagination: {} });
     return json({}, 404);
   }) as typeof fetch;
 }
@@ -105,11 +106,12 @@ function setup(over: Partial<ApiConfig['limits']> = {}, opts: { admin?: string; 
       return app.request(`/api${path}`, { method: o.method ?? 'GET', headers, body: o.body === undefined ? undefined : JSON.stringify(o.body) });
     },
     /** Full OAuth round trip; returns the callback response and the session cookie if any. */
-    async login(who: string, invite?: string) {
-      const r1 = await app.request(`/api/auth/login${invite ? `?invite=${invite}` : ''}`);
+    async login(who: string, invite?: string, o: { returnTo?: string; cookie?: string } = {}) {
+      const q = new URLSearchParams(); if (invite) q.set('invite', invite); if (o.returnTo !== undefined) q.set('returnTo', o.returnTo);
+      const r1 = await app.request(`/api/auth/login${q.size ? `?${q}` : ''}`);
       const state = new URL(r1.headers.get('location')!).searchParams.get('state')!;
       const stateCookie = r1.headers.get('set-cookie')!.split(';')[0];
-      const r2 = await app.request(`/api/auth/callback?code=${who}&state=${state}`, { headers: { cookie: stateCookie } });
+      const r2 = await app.request(`/api/auth/callback?code=${who}&state=${state}`, { headers: { cookie: o.cookie ? `${stateCookie}; ${o.cookie}` : stateCookie } });
       const sc = r2.headers.get('set-cookie') ?? '';
       const m = /mn_session=([^;]+)/.exec(sc);
       return { res: r2, location: r2.headers.get('location')!, cookie: m ? `mn_session=${m[1]}` : '', setCookie: sc };
@@ -766,4 +768,30 @@ test('logout deletes the session', async () => {
   const { cookie } = await a.login('admin');
   assert.equal((await a.req('/auth/logout', { method: 'POST', cookie })).status, 200);
   assert.equal((await a.req('/me', { cookie })).status, 401);
+});
+
+test('follow refresh: returnTo survives the round trip, fresh follows, old session deleted', async () => {
+  const a = setup();
+  const first = await a.login('admin');
+  assert.equal(first.location, '/onboarding');
+  const before = await j(await a.req('/me', { cookie: first.cookie }));
+  assert.deepEqual(before.followSuggestions.map((f: any) => f.login), ['marbles_one']);
+  const old = FOLLOWS;
+  FOLLOWS = [...old, { broadcaster_id: 'ch-marbles_two', broadcaster_login: 'marbles_two', broadcaster_name: 'Marbles_Two' }];
+  try {
+    const again = await a.login('admin', undefined, { returnTo: '/channels', cookie: first.cookie });
+    assert.equal(again.location, '/channels');
+    const me = await j(await a.req('/me', { cookie: again.cookie }));
+    assert.deepEqual(me.followSuggestions.map((f: any) => f.login), ['marbles_one', 'marbles_two']);
+    assert.equal((await a.req('/me', { cookie: first.cookie })).status, 401);
+  } finally { FOLLOWS = old; }
+});
+
+test('follow refresh: unsafe returnTo falls back to /', async () => {
+  const a = setup();
+  await a.login('admin');
+  for (const bad of ['//evil.example', 'https://evil.example', '/\\evil', '/\t/evil.example', 'channels', '/' + 'a'.repeat(200)]) {
+    assert.equal((await a.login('admin', undefined, { returnTo: bad })).location, '/', bad);
+  }
+  assert.equal((await a.login('admin', undefined, { returnTo: '/onboarding?step=2' })).location, '/onboarding?step=2');
 });
