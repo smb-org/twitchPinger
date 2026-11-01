@@ -19,6 +19,10 @@ export function cooldownMs(cooldownSec: number): number {
   return Math.max(cooldownSec, LIMITS_DEFAULTS.MIN_COOLDOWN_SEC) * 1000;
 }
 
+export function effectiveThreshold(burst: Burst, active: number): number {
+  return Math.max(burst.threshold, burst.minPercent ? Math.ceil(burst.minPercent * active / 100) : 0);
+}
+
 /** `count` is the number of hits (users or messages) in the window after this one (0 during cooldown). */
 export function step(
   state: BurstState,

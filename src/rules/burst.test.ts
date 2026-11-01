@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBurstState, step } from './burst.ts';
+import { createBurstState, effectiveThreshold, step } from './burst.ts';
 import type { Burst } from '../types.ts';
 
 const b: Burst = { threshold: 5, windowSec: 60, countBy: 'users' };
@@ -48,4 +48,13 @@ test('min cooldown clamp', () => {
   assert.equal(run(s, 'u1', 0, one, 0).fired, true);
   assert.equal(run(s, 'u1', 29, one, 0).fired, false);
   assert.equal(run(s, 'u1', 30, one, 0).fired, true);
+});
+
+test('effective threshold scales with active chatters and keeps the configured floor', () => {
+  const scaled: Burst = { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'users' };
+  assert.equal(effectiveThreshold(scaled, 8), 3);
+  assert.equal(effectiveThreshold(scaled, 60), 6);
+  assert.equal(effectiveThreshold(scaled, 300), 30);
+  assert.equal(effectiveThreshold(b, 300), 5);
+  assert.equal(effectiveThreshold({ ...scaled, minPercent: 0 }, 300), 3);
 });

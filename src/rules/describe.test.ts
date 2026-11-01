@@ -12,7 +12,7 @@ test('describeRule: default users burst', () => {
 
 test('describeRule: threshold 1, modes, cooldown', () => {
   const r = rule({ burst: { threshold: 1, windowSec: 60, countBy: 'users' }, matcher: { mode: 'word', pattern: 'x', caseSensitive: false }, cooldownSec: 45 });
-  assert.equal(describeRule(r, ['a']), 'Meldet jede Nachricht, die „x“ als ganzes Wort enthält, in a, danach 45 s Ruhe.');
+  assert.equal(describeRule(r, ['a']), 'Meldet, wenn mindestens 1 Chatter innerhalb von 60 s eine Nachricht schreibt, die „x“ als ganzes Wort enthält, in a, danach 45 s Ruhe.');
   assert.match(describeRule(rule({ cooldownSec: 1 }), []), /danach 30 s Ruhe\.$/);
   assert.match(describeRule(rule({ matcher: { mode: 'regex', pattern: 'a+', caseSensitive: false } }), []), /auf den Ausdruck „a\+“ passt/);
   assert.match(describeRule(rule({ matcher: { mode: 'contains', pattern: 'a', caseSensitive: false } }), []), /„a“ enthält/);
@@ -21,6 +21,16 @@ test('describeRule: threshold 1, modes, cooldown', () => {
 test('describeRule mentions the active chatter share when configured', () => {
   const r = rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'users' } });
   assert.match(describeRule(r, []), /mindestens 3 verschiedene Chatter \(und mindestens 10 % der aktiven Chatter\) innerhalb von 60 s/);
+});
+
+test('message thresholds describe a minimum share without claiming a share of chatters', () => {
+  const r = rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'messages' } });
+  assert.equal(describeRule(r, []), 'Meldet, wenn mindestens 3 Nachrichten (und mindestens so viele wie 10 % der aktiven Chatter), die mit „!play“ beginnen, innerhalb von 60 s geschrieben werden, danach 5 min Ruhe.');
+});
+
+test('threshold of one uses singular chatter wording and still says at least', () => {
+  const r = rule({ burst: { threshold: 1, windowSec: 60, countBy: 'users' } });
+  assert.match(describeRule(r, []), /mindestens 1 Chatter innerhalb von 60 s/);
 });
 
 test('describeRule: messages and sender', () => {
@@ -39,4 +49,13 @@ test('simulateThreshold', () => {
   ];
   assert.deepEqual(simulateThreshold(rule(), ms), { hits: 6, chatters: 5, fires: 1 });
   assert.deepEqual(simulateThreshold(rule({ sender: { badges: ['vip'], logins: [], exclude: false } }), ms), { hits: 0, chatters: 0, fires: 0 });
+});
+
+test('simulateThreshold scales from active non-command chatters before matching', () => {
+  const base = 10_000;
+  const active = Array.from({ length: 60 }, (_, i) => msg('hello', { userId: `active${i}`, sentAt: base + i }));
+  const commands = Array.from({ length: 6 }, (_, i) => msg('!play', { userId: `active${i}`, sentAt: base + 100 + i }));
+  const r = rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'users' } });
+  assert.deepEqual(simulateThreshold(r, [...active, ...commands.slice(0, 3)]), { hits: 3, chatters: 3, fires: 0 });
+  assert.deepEqual(simulateThreshold(r, [...active, ...commands]), { hits: 6, chatters: 6, fires: 1 });
 });

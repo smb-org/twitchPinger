@@ -6,6 +6,7 @@ import type { Badge, ChatMessage, Hit, MatchMode, Rule, Target, TargetKind } fro
 import type { RuleInput, UserRow } from '../db/repo.ts';
 import { pointsFor } from '../invite-tree.ts';
 import type { ApiDeps } from './deps.ts';
+import { effectiveThreshold } from '../rules/burst.ts';
 import { DISCORD_STATE_COOKIE, SESSION_COOKIE, SESSION_TTL_MS, STATE_COOKIE, hashSessionId, newSessionId, randomId, signDiscordState, signState, verifyDiscordState, verifyState } from './session.ts';
 
 type Env = { Variables: { user: UserRow; sessionHash: string } };
@@ -254,7 +255,7 @@ export function createApi(deps: ApiDeps) {
         live: r.channelIds.map((channelId) => {
           const current = live.get(channelId);
           const fired = firedByChannel.get(channelId);
-          return { channelId, channel: channels.get(channelId)?.login ?? null, inWindow: current?.inWindow ?? 0, threshold: current?.threshold ?? Math.max(r.burst.threshold, r.burst.minPercent ? Math.ceil(r.burst.minPercent * (deps.activeChatters?.(channelId) ?? 0) / 100) : 0), cooling: current?.cooling ?? (!!fired && fired.cooldownUntil > currentTime), tally: current?.tally ?? null };
+          return { channelId, channel: channels.get(channelId)?.login ?? null, inWindow: current?.inWindow ?? 0, threshold: current?.threshold ?? effectiveThreshold(r.burst, deps.activeChatters?.(channelId) ?? 0), cooling: current?.cooling ?? (!!fired && fired.cooldownUntil > currentTime), tally: current?.tally ?? null };
         }),
       };
     });
@@ -390,10 +391,11 @@ export function createApi(deps: ApiDeps) {
       channel: channelLogin, channelId: channel?.id ?? '', userId: 'test', login: 'test', displayName: 'Test',
       text: sampleText, badges: [], sentAt: firedAt, receivedAt: firedAt,
     };
+    const threshold = effectiveThreshold(rule.burst, deps.activeChatters?.(channel?.id ?? '') ?? 0);
     const hit: Hit = {
       ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: sample.channelId, channel: channelLogin,
       channelDisplayName: channel?.displayName ?? channelLogin, channelAvatar: channel?.avatarUrl ?? null,
-      count: rule.burst.threshold, burst: rule.burst, cooldownSec: rule.cooldownSec, sample, firedAt,
+      count: threshold, burst: { ...rule.burst, threshold }, cooldownSec: rule.cooldownSec, sample, firedAt,
     };
     const results = await Promise.all(targets.map(async (target) => {
       const result = await deps.deliverer.sendRuleTest(target, hit).catch(() => ({ ok: false, error: 'Zustellung fehlgeschlagen.' }));
