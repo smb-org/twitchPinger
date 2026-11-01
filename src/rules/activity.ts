@@ -22,7 +22,9 @@ export function createActivityTracker(now: () => number) {
       if (text.trimStart().startsWith('!')) return;
       let entries = channels.get(channelId);
       if (!entries) channels.set(channelId, (entries = new Map()));
-      if (entries.size < CHATTER_LIMIT || entries.has(userId)) entries.set(userId, t);
+      // Map order doubles as LRU: re-insert moves a user to the end, a full map drops the oldest.
+      if (!entries.delete(userId) && entries.size >= CHATTER_LIMIT) entries.delete(entries.keys().next().value!);
+      entries.set(userId, t);
     },
     count(channelId: string, windowMin = 10): number {
       const entries = channels.get(channelId);

@@ -21,6 +21,27 @@ test('caps tracked chatter IDs at the engine limit', () => {
   assert.equal(activity.count('c1'), 10_000);
 });
 
+test('a full tracker evicts the least recently seen chatter, not newcomers', () => {
+  let now = 0;
+  const activity = createActivityTracker(() => now);
+  for (let i = 0; i < 10_000; i++) activity.record('c1', `old${i}`, 'hello');
+  now = 11 * 60_000;
+  for (let i = 0; i < 60; i++) activity.record('c1', `new${i}`, 'hello');
+  assert.equal(activity.count('c1', 10), 60);
+  assert.equal(activity.count('c1', 30), 10_000);
+});
+
+test('a re-seen chatter moves to the newest position', () => {
+  let now = 0;
+  const activity = createActivityTracker(() => now);
+  for (let i = 0; i < 10_000; i++) activity.record('c1', `u${i}`, 'hello');
+  now = 60_000;
+  activity.record('c1', 'u0', 'still here');
+  activity.record('c1', 'fresh', 'hi');
+  assert.equal(activity.count('c1', 1), 2); // u0 kept, u1 evicted instead
+  assert.equal(activity.count('c1', 30), 10_000);
+});
+
 test('retain drops activity for channels that are no longer desired', () => {
   const activity = createActivityTracker(() => 0);
   activity.record('kept', 'u1', 'hello');
