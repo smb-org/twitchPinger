@@ -26,6 +26,7 @@ export function step(
   cooldownSec: number,
   hit: { userId: string },
   now: number,
+  threshold = burst.threshold,
 ): { fired: boolean; count: number } {
   if (now < state.cooldownUntil) return { fired: false, count: 0 };
   const cutoff = now - burst.windowSec * 1000;
@@ -34,7 +35,7 @@ export function step(
   if (users) hits = hits.filter((h) => h.key !== hit.userId);
   hits.push({ key: hit.userId, t: now });
   const count = hits.length;
-  if (count >= burst.threshold) {
+  if (count >= threshold) {
     state.hits = [];
     state.cooldownUntil = now + cooldownMs(cooldownSec);
     return { fired: true, count };

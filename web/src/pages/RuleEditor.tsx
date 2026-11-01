@@ -34,6 +34,7 @@ export function RuleEditor({ id }: { id: string | null }) {
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<'rule' | 'preview'>('rule');
   const [pvLogin, setPvLogin] = useState('');
+  const [activity, setActivity] = useState<Record<string, number>>({});
   const [draft, setDraft] = useState('');
   const [loginErr, setLoginErr] = useState('');
   const existing = id ? base.data?.rules.find((r) => r.id === id) : undefined;
@@ -48,6 +49,16 @@ export function RuleEditor({ id }: { id: string | null }) {
   }, [base.data]);
 
   const channels = base.data?.channels ?? [];
+  useEffect(() => {
+    if (!base.data) return;
+    let active = true;
+    const refresh = () => { void api<{ channels: { channelId: string; active: number }[] }>('GET', '/channels/activity').then((r) => {
+      if (active) setActivity(Object.fromEntries(r.channels.map((ch) => [ch.channelId, ch.active])));
+    }).catch(() => {}); };
+    refresh();
+    const timer = window.setInterval(refresh, 15_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [!!base.data]);
   const selLogins = channels.filter((c) => form?.channelIds.includes(c.id)).map((c) => c.login);
   useEffect(() => {
     if (!pvLogin && channels.length && form) setPvLogin(selLogins[0] ?? channels[0]!.login);
@@ -177,6 +188,18 @@ export function RuleEditor({ id }: { id: string | null }) {
                 <span>in</span>
                 <input class="num mono" type="number" min={5} max={3600} aria-label="Fenster in Sekunden" value={form.windowSec} onInput={(e) => upd({ windowSec: val(e) })} />
                 <span>s</span>
+              </div>
+              <div class="inline-row wrap min-percent-row">
+                <span>und mindestens</span>
+                <input class="num mono" type="number" min={1} max={100} aria-label="Prozent der aktiven Chatter" value={form.minPercent} onInput={(e) => upd({ minPercent: val(e) })} />
+                <span>% der aktiven Chatter</span>
+              </div>
+              <div class="activity-lines" role="group" aria-label="Aktive Chatter je Channel">
+                {channels.filter((c) => form.channelIds.includes(c.id)).map((c) => {
+                  const active = activity[c.id];
+                  const threshold = Math.max(Number(form.threshold) || 1, form.minPercent && active !== undefined ? Math.ceil(Number(form.minPercent) * active / 100) : 0);
+                  return <div class="activity-line mono" key={c.id}>@{c.login}: gerade {active === undefined ? '–' : active} aktiv → Schwelle {active === undefined ? '–' : threshold}</div>;
+                })}
               </div>
               <Err text={errs.burst || srvOf('burst')} />
             </fieldset>

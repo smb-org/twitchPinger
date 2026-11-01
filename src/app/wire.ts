@@ -220,6 +220,7 @@ export function createService(deps: ServiceDeps) {
     validateRegex,
     checkTargetUrl: (kind, url) => { const r = checkTargetUrl(kind, url); return r.ok ? null : r.error; },
     live: engine.live,
+    activeChatters: engine.activeChatters,
     onConfigChanged,
   });
 

@@ -17,7 +17,7 @@ export interface Form {
   name: string; enabled: boolean;
   mode: MatchMode; pattern: string; blocks: Block[] | null; caseSensitive: boolean;
   badges: Badge[]; logins: string[]; exclude: boolean;
-  threshold: string; windowSec: string; countBy: 'users' | 'messages';
+  threshold: string; minPercent: string; windowSec: string; countBy: 'users' | 'messages';
   cdVal: string; cdUnit: 's' | 'min';
   skipIfSelf: boolean;
   channelIds: string[]; targetIds: string[];
@@ -25,7 +25,7 @@ export interface Form {
 
 export const emptyForm = (): Form => ({
   name: '', enabled: true, mode: 'contains', pattern: '', blocks: null, caseSensitive: false,
-  badges: [], logins: [], exclude: false, threshold: '1', windowSec: '60', countBy: 'users',
+  badges: [], logins: [], exclude: false, threshold: '1', minPercent: '', windowSec: '60', countBy: 'users',
   cdVal: '5', cdUnit: 'min', skipIfSelf: false, channelIds: [], targetIds: [],
 });
 
@@ -38,7 +38,7 @@ export const MARBLES = {
   cooldownSec: 300,
 };
 export function applyMarbles(f: Form): Form {
-  return { ...f, name: f.name.trim() ? f.name : MARBLES.name, mode: 'prefix', pattern: '!play', blocks: null, caseSensitive: false, badges: [], logins: [], exclude: false, threshold: '5', windowSec: '60', countBy: 'users', cdVal: '5', cdUnit: 'min' };
+  return { ...f, name: f.name.trim() ? f.name : MARBLES.name, mode: 'prefix', pattern: '!play', blocks: null, caseSensitive: false, badges: [], logins: [], exclude: false, threshold: '5', minPercent: '', windowSec: '60', countBy: 'users', cdVal: '5', cdUnit: 'min' };
 }
 
 export function fromRule(r: Rule): Form {
@@ -46,7 +46,7 @@ export function fromRule(r: Rule): Form {
   return {
     name: r.name, enabled: r.enabled, mode: r.matcher.mode, pattern: r.matcher.pattern, blocks: null, caseSensitive: r.matcher.caseSensitive,
     badges: r.sender.badges, logins: r.sender.logins, exclude: r.sender.exclude,
-    threshold: String(r.burst.threshold), windowSec: String(r.burst.windowSec), countBy: r.burst.countBy,
+    threshold: String(r.burst.threshold), minPercent: r.burst.minPercent ? String(r.burst.minPercent) : '', windowSec: String(r.burst.windowSec), countBy: r.burst.countBy,
     cdVal: String(min ? r.cooldownSec / 60 : r.cooldownSec), cdUnit: min ? 'min' : 's',
     skipIfSelf: r.skipIfSelf,
     channelIds: r.channelIds, targetIds: r.targetIds,
@@ -65,7 +65,7 @@ export function toBody(f: Form) {
     name: f.name.trim(), enabled: f.enabled,
     matcher: { mode: f.mode, pattern: f.pattern, caseSensitive: f.caseSensitive },
     sender: { badges: f.badges, logins: f.logins, exclude: f.exclude },
-    burst: { threshold: Number.isFinite(t) ? t : 1, windowSec: Number.isFinite(w) ? w : 60, countBy: f.countBy },
+    burst: { threshold: Number.isFinite(t) ? t : 1, ...(num(f.minPercent) > 0 ? { minPercent: num(f.minPercent) } : {}), windowSec: Number.isFinite(w) ? w : 60, countBy: f.countBy },
     cooldownSec: Number.isFinite(c) ? Math.round(c) : 300,
     skipIfSelf: f.skipIfSelf,
     channelIds: f.channelIds, targetIds: f.targetIds,
@@ -84,6 +84,8 @@ export function validate(f: Form, L: Limits): Record<string, string> {
   const w = num(f.windowSec);
   if (!Number.isInteger(t) || t < 1 || t > 100) e.burst = 'Die Schwelle muss zwischen 1 und 100 liegen.';
   else if (!Number.isInteger(w) || w < 5 || w > 3600) e.burst = 'Das Fenster muss zwischen 5 und 3600 Sekunden liegen.';
+  const p = num(f.minPercent);
+  if (f.minPercent.trim() !== '' && (!Number.isInteger(p) || p < 1 || p > 100)) e.burst = 'Der Anteil muss zwischen 1 und 100 Prozent liegen.';
   const c = cooldownOf(f);
   if (!Number.isFinite(c) || c < L.MIN_COOLDOWN_SEC) e.cooldownSec = `Der Cooldown muss mindestens ${L.MIN_COOLDOWN_SEC} Sekunden betragen.`;
   else if (c > 86_400 * 7) e.cooldownSec = 'Der Cooldown darf höchstens 7 Tage betragen.';
