@@ -29,6 +29,17 @@ test('rule builder preview, no layout shift, save', async ({ browser }) => {
 
   await page.goto('/rules/new?vorlage=marbles');
   await page.getByLabel('Channel für die Vorschau').selectOption('marblemania');
+  const activityLine = page.locator('.activity-line', { hasText: '@marblemania:' });
+  await expect(activityLine).toHaveText(/@marblemania: gerade \d+ aktiv → Schwelle 5/);
+  const editorTop = async () => ({
+    panel: (await page.locator('.panel.prev').boundingBox())!.y,
+    save: (await page.getByRole('button', { name: 'Speichern' }).boundingBox())!.y,
+  });
+  const activityLayout = await editorTop();
+  const previousActivity = await activityLine.textContent();
+  expect((await apiPost(ctx, '/api/test/chat', [chat('marblemania', '2002', '9999', 'hello from another chatter', Date.now())])).ok()).toBe(true);
+  await expect(activityLine).not.toHaveText(previousActivity!, { timeout: 17_000 });
+  expect(await editorTop()).toEqual(activityLayout);
   const count = page.locator('.pv-count');
   await expect(count).toHaveText(`${hits.length} Treffer · ${chatters} Chatter · Schwelle wäre 1× erreicht worden`);
 

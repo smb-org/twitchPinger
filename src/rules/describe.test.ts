@@ -6,7 +6,7 @@ import { msg, rule } from './fixtures.ts';
 test('describeRule: default users burst', () => {
   assert.equal(
     describeRule(rule(), ['sbx_tv', 'marblemania']),
-    'Meldet, wenn 5 verschiedene Chatter innerhalb von 60 s eine Nachricht schreiben, die mit „!play“ beginnt, in sbx_tv und marblemania, danach 5 min Ruhe.',
+    'Meldet, wenn mindestens 5 verschiedene Chatter innerhalb von 60 s eine Nachricht schreiben, die mit „!play“ beginnt, in sbx_tv und marblemania, danach 5 min Ruhe.',
   );
 });
 
@@ -18,9 +18,14 @@ test('describeRule: threshold 1, modes, cooldown', () => {
   assert.match(describeRule(rule({ matcher: { mode: 'contains', pattern: 'a', caseSensitive: false } }), []), /„a“ enthält/);
 });
 
+test('describeRule mentions the active chatter share when configured', () => {
+  const r = rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'users' } });
+  assert.match(describeRule(r, []), /mindestens 3 verschiedene Chatter \(und mindestens 10 % der aktiven Chatter\) innerhalb von 60 s/);
+});
+
 test('describeRule: messages and sender', () => {
   const r = rule({ burst: { threshold: 3, windowSec: 120, countBy: 'messages' }, sender: { badges: ['moderator', 'vip'], logins: [], exclude: false } });
-  assert.equal(describeRule(r, ['c']), 'Meldet, wenn 3 Nachrichten, die mit „!play“ beginnen, innerhalb von 120 s geschrieben werden, nur von Mods und VIPs, in c, danach 5 min Ruhe.');
+  assert.equal(describeRule(r, ['c']), 'Meldet, wenn mindestens 3 Nachrichten, die mit „!play“ beginnen, innerhalb von 120 s geschrieben werden, nur von Mods und VIPs, in c, danach 5 min Ruhe.');
   const e = rule({ sender: { badges: [], logins: ['bot'], exclude: true } });
   assert.match(describeRule(e, []), /, außer von bot, danach/);
   assert.match(describeRule(rule({ skipIfSelf: true }), []), /wenn du im Zeitfenster selbst ausgelöst hast/);

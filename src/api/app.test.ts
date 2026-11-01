@@ -424,16 +424,19 @@ test('rules: create/update/delete, validation errors, limit, ownership, updatedA
   assert.equal((await err({ ...base, skipIfSelf: 'yes' })).field, 'skipIfSelf');
   assert.equal((await err({ ...base, burst: { threshold: 0, windowSec: 60 } })).field, 'burst.threshold');
   assert.equal((await err({ ...base, burst: { threshold: 101, windowSec: 60 } })).field, 'burst.threshold');
+  assert.equal((await err({ ...base, burst: { threshold: 2, windowSec: 60, minPercent: 101 } })).message, 'Der Anteil muss zwischen 1 und 100 Prozent liegen.');
+  assert.equal((await err({ ...base, burst: { threshold: 2, windowSec: 60, minPercent: 10.5 } })).field, 'burst.minPercent');
   assert.equal((await err({ ...base, burst: { threshold: 2, windowSec: 4 } })).field, 'burst.windowSec');
   assert.equal((await err({ ...base, burst: { threshold: 2, windowSec: 3601 } })).field, 'burst.windowSec');
   assert.equal((await err({ ...base, channelIds: ['ch-other'] })).field, 'channelIds');
   assert.equal((await err({ ...base, targetIds: ['nope'] })).field, 'targetIds');
 
-  const created = await post(base);
+  const created = await post({ ...base, burst: { threshold: 5, windowSec: 60, minPercent: 0 } });
   assert.equal(created.status, 201);
   const rule = (await j(created)).rule;
   assert.equal(rule.updatedAt, 1_000_000);
   assert.equal(rule.burst.countBy, 'users');
+  assert.equal(rule.burst.minPercent, undefined);
   assert.equal(rule.skipIfSelf, false);
   a.advance(5000);
   const put = await a.req(`/rules/${rule.id}`, { method: 'PUT', cookie: alice, body: { ...base, name: 'renamed', skipIfSelf: true } });
@@ -453,6 +456,16 @@ test('rules: create/update/delete, validation errors, limit, ownership, updatedA
   const v = await j(await a.req('/rules/validate-regex', { method: 'POST', cookie: alice, body: { pattern: '(?=a)' } }));
   assert.equal(v.ok, false);
   assert.equal((await j(await a.req('/rules/validate-regex', { method: 'POST', cookie: alice, body: { pattern: 'a+' } }))).ok, true);
+});
+
+test('channel activity requires auth and only returns the caller channels', async () => {
+  const a = setup({}, {}, { activeChatters: (id: string) => id === 'ch-marbles_one' ? 12 : 4 });
+  const { alice } = await member(a);
+  const bob = await a.join('bob', alice);
+  const one = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_one' } }))).channel;
+  await a.req('/channels', { method: 'POST', cookie: bob.cookie, body: { login: 'marbles_two' } });
+  assert.equal((await a.req('/channels/activity')).status, 401);
+  assert.deepEqual((await j(await a.req('/channels/activity', { cookie: alice }))).channels, [{ channelId: one.id, active: 12 }]);
 });
 
 test('rule test sends a synthetic hit to owned targets without changing rule state or history', async () => {
@@ -663,17 +676,17 @@ test('overview: rules with cooldown info and last pings; me counts', async () =>
   assert.equal(me.limits.MAX_RULES_PER_USER, 20);
 });
 
-test('overview includes per-channel live state and burst threshold', async () => {
-  const a = setup({}, {}, { live: () => [{ channelId: 'ch-marbles_one', inWindow: 3, cooling: false, tally: { since: 900_000, mentions: 37, chatters: 21 } }] });
+test('overview includes per-channel live state and effective burst threshold', async () => {
+  const a = setup({}, {}, { live: () => [{ channelId: 'ch-marbles_one', inWindow: 3, cooling: false, tally: { since: 900_000, mentions: 37, chatters: 21 } }], activeChatters: (id: string) => id === 'ch-marbles_one' ? 60 : 8 });
   const { alice } = await member(a);
   const one = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_one' } }))).channel;
   const two = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_two' } }))).channel;
-  await a.req('/rules', { method: 'POST', cookie: alice, body: { name: 'r', matcher: { mode: 'contains', pattern: 'x' }, burst: { threshold: 5, windowSec: 60, countBy: 'users' }, channelIds: [one.id, two.id] } });
+  await a.req('/rules', { method: 'POST', cookie: alice, body: { name: 'r', matcher: { mode: 'contains', pattern: 'x' }, burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'users' }, channelIds: [one.id, two.id] } });
 
   const o = await j(await a.req('/overview', { cookie: alice }));
   assert.deepEqual(o.rules[0].live, [
-    { channelId: one.id, channel: 'marbles_one', inWindow: 3, threshold: 5, cooling: false, tally: { since: 900_000, mentions: 37, chatters: 21 } },
-    { channelId: two.id, channel: 'marbles_two', inWindow: 0, threshold: 5, cooling: false, tally: null },
+    { channelId: one.id, channel: 'marbles_one', inWindow: 3, threshold: 6, cooling: false, tally: { since: 900_000, mentions: 37, chatters: 21 } },
+    { channelId: two.id, channel: 'marbles_two', inWindow: 0, threshold: 3, cooling: false, tally: null },
   ]);
 });
 

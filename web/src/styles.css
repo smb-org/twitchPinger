@@ -81,6 +81,9 @@ input::placeholder { color: var(--muted); opacity: 0.8; }
 input:hover:not(:disabled), select:hover { border-color: var(--muted); }
 input[type='checkbox'] { width: 20px; height: 20px; accent-color: var(--primary); flex: none; margin: 0; }
 .num { width: 88px !important; }
+.min-percent-row { margin-top: 8px; }
+.activity-lines { margin-top: 4px; }
+.activity-line { height: 24px; line-height: 24px; overflow: hidden; white-space: nowrap; }
 .field { display: block; margin-bottom: 0; }
 .err { min-height: 1.5rem; margin: 2px 0 8px; font-size: 0.875rem; color: var(--error); overflow-wrap: anywhere; }
 .err:empty { visibility: hidden; }

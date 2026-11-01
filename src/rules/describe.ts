@@ -25,9 +25,9 @@ export function describeRule(rule: Rule, channelLabels: string[]): string {
     }
   };
   let head: string;
-  if (b.threshold <= 1) head = `Meldet jede Nachricht, ${cond(false)}`;
-  else if (b.countBy === 'users') head = `Meldet, wenn ${b.threshold} verschiedene Chatter innerhalb von ${b.windowSec} s eine Nachricht schreiben, ${cond(false)}`;
-  else head = `Meldet, wenn ${b.threshold} Nachrichten, ${cond(true)}, innerhalb von ${b.windowSec} s geschrieben werden`;
+  if (b.threshold <= 1 && !b.minPercent) head = `Meldet jede Nachricht, ${cond(false)}`;
+  else if (b.countBy === 'users') head = `Meldet, wenn mindestens ${b.threshold} verschiedene Chatter${b.minPercent ? ` (und mindestens ${b.minPercent} % der aktiven Chatter)` : ''} innerhalb von ${b.windowSec} s eine Nachricht schreiben, ${cond(false)}`;
+  else head = `Meldet, wenn mindestens ${b.threshold} Nachrichten${b.minPercent ? ` (und mindestens ${b.minPercent} % der aktiven Chatter)` : ''}, ${cond(true)}, innerhalb von ${b.windowSec} s geschrieben werden`;
   const who = [...s.badges.map((x) => BADGE_DE[x]), ...s.logins];
   const sender = who.length ? (s.exclude ? `, außer von ${list(who)}` : `, nur von ${list(who)}`) : '';
   const ch = channelLabels.length ? `, in ${list(channelLabels)}` : '';

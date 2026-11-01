@@ -2,6 +2,7 @@ import type { ChatMessage, Hit, Rule } from '../types.ts';
 import { compileMatcher, matchesSender } from './matcher.ts';
 import { cooldownMs, createBurstState, step } from './burst.ts';
 import type { BurstState } from './burst.ts';
+import { createActivityTracker } from './activity.ts';
 
 export interface EngineDeps {
   now: () => number;
@@ -37,6 +38,7 @@ export function createEngine(deps: EngineDeps) {
   let messages = 0;
   let totalMicros = 0;
   let maxMicros = 0;
+  const activity = createActivityTracker(deps.now);
 
   return {
     setRules(rules: Rule[]): void {
@@ -67,6 +69,7 @@ export function createEngine(deps: EngineDeps) {
     },
 
     ingest(msg: ChatMessage): void {
+      activity.record(msg.channelId, msg.userId, msg.text);
       const list = byChannel.get(msg.channelId);
       if (!list) return;
       const t0 = performance.now();
@@ -94,7 +97,8 @@ export function createEngine(deps: EngineDeps) {
           tally.mentions++;
           addChatter(tally.chatters, msg.userId);
         }
-        const r = step(st, rule.burst, rule.cooldownSec, msg, now);
+        const threshold = Math.max(rule.burst.threshold, rule.burst.minPercent ? Math.ceil(rule.burst.minPercent * activity.count(msg.channelId) / 100) : 0);
+        const r = step(st, rule.burst, rule.cooldownSec, msg, now, threshold);
         if (!r.fired) continue;
         const firedAt = now;
         const chatters = new Set<string>();
@@ -107,7 +111,7 @@ export function createEngine(deps: EngineDeps) {
           deps.log?.(`rule ${rule.id} fired in ${msg.channel}, skipped: owner already joined`);
           continue;
         }
-        deps.onHit({ ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: msg.channelId, channel: msg.channel, count: r.count, burst: rule.burst, cooldownSec: rule.cooldownSec, sample: msg, firedAt });
+        deps.onHit({ ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: msg.channelId, channel: msg.channel, count: r.count, burst: { ...rule.burst, threshold }, cooldownSec: rule.cooldownSec, sample: msg, firedAt });
       }
       const micros = (performance.now() - t0) * 1000;
       messages++;
@@ -119,7 +123,9 @@ export function createEngine(deps: EngineDeps) {
       return { messages, avgMatchMicros: messages ? totalMicros / messages : 0, maxMatchMicros: maxMicros };
     },
 
-    live(ruleId: string): { channelId: string; inWindow: number; cooling: boolean; tally: { since: number; mentions: number; chatters: number } | null }[] {
+    activeChatters(channelId: string): number { return activity.count(channelId); },
+
+    live(ruleId: string): { channelId: string; inWindow: number; threshold: number; cooling: boolean; tally: { since: number; mentions: number; chatters: number } | null }[] {
       const c = compiled.get(ruleId);
       if (!c) return [];
       const now = deps.now();
@@ -129,7 +135,7 @@ export function createEngine(deps: EngineDeps) {
         const hits = cooling ? [] : state.hits.filter((h) => h.t > cutoff);
         const inWindow = c.rule.burst.countBy === 'users' ? new Set(hits.map((h) => h.key)).size : hits.length;
         const tally = c.tallies.get(channelId);
-        return { channelId, inWindow, cooling, tally: tally ? { since: tally.since, mentions: tally.mentions, chatters: tally.chatters.size } : null };
+        return { channelId, inWindow, threshold: Math.max(c.rule.burst.threshold, c.rule.burst.minPercent ? Math.ceil(c.rule.burst.minPercent * activity.count(channelId) / 100) : 0), cooling, tally: tally ? { since: tally.since, mentions: tally.mentions, chatters: tally.chatters.size } : null };
       });
     },
   };
