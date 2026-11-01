@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { describeRule } from '../../../src/rules/describe.ts';
+import { effectiveThreshold } from '../../../src/rules/burst.ts';
 import { api, ApiError, errText, meStore } from '../api.ts';
 import type { Badge, Channel, OverviewRule, Rule, TargetDto } from '../api.ts';
 import { MatcherBuilder } from '../builder.tsx';
@@ -49,6 +50,8 @@ export function RuleEditor({ id }: { id: string | null }) {
   }, [base.data]);
 
   const channels = base.data?.channels ?? [];
+  const liveThresholdValid = Number.isInteger(Number(form?.threshold)) && Number(form?.threshold) >= 1 && Number(form?.threshold) <= 100
+    && (!form?.minPercent.trim() || (Number.isInteger(Number(form.minPercent)) && Number(form.minPercent) >= 1 && Number(form.minPercent) <= 100));
   useEffect(() => {
     if (!base.data) return;
     let active = true;
@@ -197,8 +200,8 @@ export function RuleEditor({ id }: { id: string | null }) {
               <div class="activity-lines" role="group" aria-label="Aktive Chatter je Channel">
                 {channels.filter((c) => form.channelIds.includes(c.id)).map((c) => {
                   const active = activity[c.id];
-                  const threshold = Math.max(Number(form.threshold) || 1, form.minPercent && active !== undefined ? Math.ceil(Number(form.minPercent) * active / 100) : 0);
-                  return <div class="activity-line mono" key={c.id}>@{c.login}: gerade {active === undefined ? '–' : active} aktiv → Schwelle {active === undefined ? '–' : threshold}</div>;
+                  const threshold = active === undefined || !liveThresholdValid ? '–' : effectiveThreshold(rule.burst, active);
+                  return <div class="activity-line mono" key={c.id}>@{c.login}: gerade {active === undefined ? '–' : active} aktiv → Schwelle {threshold}</div>;
                 })}
               </div>
               <Err text={errs.burst || srvOf('burst')} />

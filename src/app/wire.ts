@@ -128,7 +128,9 @@ export function createService(deps: ServiceDeps) {
   function applyConfig(): void {
     debounce = null;
     engine.setRules(repo.listEnabledRules());
-    reader.setChannels(repo.desiredChannelLogins()).catch((e) => log(`setChannels failed: ${e}`));
+    const desired = repo.desiredChannels();
+    engine.retainActivity(desired.map((channel) => channel.id));
+    reader.setChannels(desired.map((channel) => channel.login)).catch((e) => log(`setChannels failed: ${e}`));
   }
   function onConfigChanged(immediate = false): void {
     if (immediate) {

@@ -1,6 +1,6 @@
 import type { ChatMessage, Hit, Rule } from '../types.ts';
 import { compileMatcher, matchesSender } from './matcher.ts';
-import { cooldownMs, createBurstState, step } from './burst.ts';
+import { cooldownMs, createBurstState, effectiveThreshold, step } from './burst.ts';
 import type { BurstState } from './burst.ts';
 import { createActivityTracker } from './activity.ts';
 
@@ -97,7 +97,7 @@ export function createEngine(deps: EngineDeps) {
           tally.mentions++;
           addChatter(tally.chatters, msg.userId);
         }
-        const threshold = Math.max(rule.burst.threshold, rule.burst.minPercent ? Math.ceil(rule.burst.minPercent * activity.count(msg.channelId) / 100) : 0);
+        const threshold = effectiveThreshold(rule.burst, activity.count(msg.channelId));
         const r = step(st, rule.burst, rule.cooldownSec, msg, now, threshold);
         if (!r.fired) continue;
         const firedAt = now;
@@ -125,6 +125,8 @@ export function createEngine(deps: EngineDeps) {
 
     activeChatters(channelId: string): number { return activity.count(channelId); },
 
+    retainActivity(channelIds: Iterable<string>): void { activity.retain(channelIds); },
+
     live(ruleId: string): { channelId: string; inWindow: number; threshold: number; cooling: boolean; tally: { since: number; mentions: number; chatters: number } | null }[] {
       const c = compiled.get(ruleId);
       if (!c) return [];
@@ -135,7 +137,7 @@ export function createEngine(deps: EngineDeps) {
         const hits = cooling ? [] : state.hits.filter((h) => h.t > cutoff);
         const inWindow = c.rule.burst.countBy === 'users' ? new Set(hits.map((h) => h.key)).size : hits.length;
         const tally = c.tallies.get(channelId);
-        return { channelId, inWindow, threshold: Math.max(c.rule.burst.threshold, c.rule.burst.minPercent ? Math.ceil(c.rule.burst.minPercent * activity.count(channelId) / 100) : 0), cooling, tally: tally ? { since: tally.since, mentions: tally.mentions, chatters: tally.chatters.size } : null };
+        return { channelId, inWindow, threshold: effectiveThreshold(c.rule.burst, activity.count(channelId)), cooling, tally: tally ? { since: tally.since, mentions: tally.mentions, chatters: tally.chatters.size } : null };
       });
     },
   };

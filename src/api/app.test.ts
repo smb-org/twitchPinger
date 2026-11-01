@@ -468,8 +468,8 @@ test('channel activity requires auth and only returns the caller channels', asyn
   assert.deepEqual((await j(await a.req('/channels/activity', { cookie: alice }))).channels, [{ channelId: one.id, active: 12 }]);
 });
 
-test('rule test sends a synthetic hit to owned targets without changing rule state or history', async () => {
-  const a = setup();
+test('rule test uses the channel effective threshold without changing rule state or history', async () => {
+  const a = setup({}, {}, { activeChatters: () => 60 });
   const { admin, alice } = await member(a);
   const ch = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_one' } }))).channel;
   for (const [id, kind] of [['t1', 'ntfy'], ['t2', 'discord']] as const) {
@@ -479,7 +479,7 @@ test('rule test sends a synthetic hit to owned targets without changing rule sta
   a.repo.recordDeliveryResult('t2', false);
   const rule = (await j(await a.req('/rules', { method: 'POST', cookie: alice, body: {
     name: 'Marbles Play', matcher: { mode: 'word', pattern: '!play' }, channelIds: [ch.id], targetIds: ['t1', 't2'],
-    burst: { threshold: 5, windowSec: 30, countBy: 'messages' },
+    burst: { threshold: 3, minPercent: 10, windowSec: 30, countBy: 'users' },
   } }))).rule;
   a.repo.setLastFired(rule.id, ch.id, 950_000);
   a.repo.recordHit({ ruleId: rule.id, channelId: ch.id, count: 3, firedAt: 950_000, sentTs: 949_000 });
@@ -498,8 +498,8 @@ test('rule test sends a synthetic hit to owned targets without changing rule sta
   ]);
   assert.equal(a.ruleTests.length, 2);
   const { hit } = a.ruleTests[0];
-  assert.deepEqual([hit.ruleId, hit.ruleName, hit.ownerId, hit.channelId, hit.channel, hit.count, hit.firedAt], [rule.id, 'Marbles Play', '2', ch.id, 'marbles_one', 5, 1_000_000]);
-  assert.deepEqual([hit.channelDisplayName, hit.channelAvatar, hit.burst, hit.cooldownSec], ['MARBLES_ONE', 'https://img.example/marbles_one.png', { threshold: 5, windowSec: 30, countBy: 'messages' }, 300]);
+  assert.deepEqual([hit.ruleId, hit.ruleName, hit.ownerId, hit.channelId, hit.channel, hit.count, hit.firedAt], [rule.id, 'Marbles Play', '2', ch.id, 'marbles_one', 6, 1_000_000]);
+  assert.deepEqual([hit.channelDisplayName, hit.channelAvatar, hit.burst, hit.cooldownSec], ['MARBLES_ONE', 'https://img.example/marbles_one.png', { threshold: 6, minPercent: 10, windowSec: 30, countBy: 'users' }, 300]);
   assert.deepEqual([hit.sample.displayName, hit.sample.text, hit.sample.sentAt, hit.sample.receivedAt], ['Test', '!play', 1_000_000, 1_000_000]);
   assert.equal(a.repo.getRule(rule.id)!.updatedAt, ruleBefore!.updatedAt);
   assert.deepEqual(a.repo.getRule(rule.id)!.burst, ruleBefore!.burst);
