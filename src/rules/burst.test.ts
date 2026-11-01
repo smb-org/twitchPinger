@@ -56,5 +56,6 @@ test('effective threshold scales with active chatters and keeps the configured f
   assert.equal(effectiveThreshold(scaled, 60), 6);
   assert.equal(effectiveThreshold(scaled, 300), 30);
   assert.equal(effectiveThreshold(b, 300), 5);
+
   assert.equal(effectiveThreshold({ ...scaled, minPercent: 0 }, 300), 3);
 });

@@ -238,3 +238,16 @@ test('owner join timestamp is isolated by channel', () => {
   e.ingest(msg('!play', { userId: 'u2', channelId: 'c2', channel: 'other' }));
   assert.deepEqual(hits.map((h) => h.channelId), ['c2']);
 });
+
+test('the rule window picks which active count scales the threshold', () => {
+  const run = (activeWindowMin?: 5 | 30) => {
+    const { e, hits, tick } = setup();
+    e.setRules([rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'users', ...(activeWindowMin ? { activeWindowMin } : {}) } })]);
+    for (let i = 0; i < 60; i++) e.ingest(msg('chat', { userId: `o${i}` }));
+    tick(20 * 60_000);
+    for (let i = 0; i < 3; i++) e.ingest(msg('!play', { userId: `n${i}` }));
+    return { hits: hits.length, live: e.live('r1')[0]!.threshold };
+  };
+  assert.deepEqual(run(5), { hits: 1, live: 3 });
+  assert.deepEqual(run(30), { hits: 0, live: 6 });
+});

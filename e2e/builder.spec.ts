@@ -31,6 +31,7 @@ test('rule builder preview, no layout shift, save', async ({ browser }) => {
   await page.getByLabel('Channel für die Vorschau').selectOption('marblemania');
   const activityLine = page.locator('.activity-line', { hasText: '@marblemania:' });
   await expect(activityLine).toHaveText(/@marblemania: gerade \d+ aktiv → Schwelle 5/);
+  await expect(page.getByLabel('Zeitraum der aktiven Chatter')).toHaveValue('10');
   const editorTop = async () => ({
     panel: (await page.locator('.panel.prev').boundingBox())!.y,
     save: (await page.getByRole('button', { name: 'Speichern' }).boundingBox())!.y,
@@ -78,4 +79,31 @@ test('long whole-word patterns stay in word mode and explain reserved regex spac
 
   await expect(page.getByRole('button', { name: 'ganzes Wort' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.builder p[role="status"]')).toContainText('Wortgrenzen');
+});
+
+test('activity window select drives the live line without layout shift', async ({ browser }) => {
+  const ctx = await browser.newContext();
+  await loginAs(ctx, '4003', 'builder_window');
+  const page = await ctx.newPage();
+  await page.goto('/channels');
+  await page.getByLabel('Twitch-Channel').fill('marblemania');
+  await page.getByRole('button', { name: 'Hinzufügen' }).first().click();
+  await expect(page.locator('li.row', { hasText: 'marblemania' })).toBeVisible();
+  await page.route('**/api/channels/activity', async (route) => {
+    const r = await route.fetch();
+    const j = await r.json();
+    await route.fulfill({ response: r, json: { channels: j.channels.map((c: { channelId: string }) => ({ ...c, active: { '5': 10, '10': 20, '30': 60 } })) } });
+  });
+  await page.goto('/rules/new?vorlage=marbles');
+  await page.getByLabel('Prozent der aktiven Chatter').fill('10');
+  const line = page.locator('.activity-line', { hasText: '@marblemania:' });
+  const sel = page.getByLabel('Zeitraum der aktiven Chatter');
+  await expect(line).toHaveText('@marblemania: gerade 20 aktiv → Schwelle 5');
+  const save = async () => (await page.getByRole('button', { name: 'Speichern' }).boundingBox())!.y;
+  const y = await save();
+  await sel.selectOption('30');
+  await expect(line).toHaveText('@marblemania: gerade 60 aktiv → Schwelle 6');
+  await sel.selectOption('5');
+  await expect(line).toHaveText('@marblemania: gerade 10 aktiv → Schwelle 5');
+  expect(await save()).toBe(y);
 });

@@ -258,7 +258,7 @@ export function createApi(deps: ApiDeps) {
         live: r.channelIds.map((channelId) => {
           const current = live.get(channelId);
           const fired = firedByChannel.get(channelId);
-          return { channelId, channel: channels.get(channelId)?.login ?? null, inWindow: current?.inWindow ?? 0, threshold: current?.threshold ?? effectiveThreshold(r.burst, deps.activeChatters?.(channelId) ?? 0), cooling: current?.cooling ?? (!!fired && fired.cooldownUntil > currentTime), tally: current?.tally ?? null };
+          return { channelId, channel: channels.get(channelId)?.login ?? null, inWindow: current?.inWindow ?? 0, threshold: current?.threshold ?? effectiveThreshold(r.burst, deps.activeChatters?.(channelId, r.burst.activeWindowMin) ?? 0), cooling: current?.cooling ?? (!!fired && fired.cooldownUntil > currentTime), tally: current?.tally ?? null };
         }),
       };
     });
@@ -271,7 +271,7 @@ export function createApi(deps: ApiDeps) {
   app.get('/channels/activity', (c) => {
     const u = me(c);
     const channels = u.isAdmin ? repo.desiredChannels() : repo.listUserChannels(u.id);
-    return c.json({ channels: channels.map((ch) => ({ channelId: ch.id, active: deps.activeChatters?.(ch.id) ?? 0 })) });
+    return c.json({ channels: channels.map((ch) => ({ channelId: ch.id, active: Object.fromEntries(([5, 10, 30] as const).map((w) => [w, deps.activeChatters?.(ch.id, w) ?? 0])) })) });
   });
 
   app.post('/channels', async (c) => {
@@ -330,6 +330,9 @@ export function createApi(deps: ApiDeps) {
     if (countBy !== 'users' && countBy !== 'messages') throw bad('burst.countBy', 'Ungültige Zählweise.');
     const minPercent = bu.minPercent === undefined || bu.minPercent === 0 ? undefined : int(bu.minPercent, 'burst.minPercent', 1, 100, 'Der Anteil muss zwischen 1 und 100 Prozent liegen.');
 
+    const aw = bu.activeWindowMin;
+    if (aw !== undefined && aw !== 5 && aw !== 10 && aw !== 30) throw bad('burst.activeWindowMin', 'Der Zeitraum muss 5, 10 oder 30 Minuten sein.');
+
     const cooldownSec = int(b.cooldownSec ?? 300, 'cooldownSec', L.MIN_COOLDOWN_SEC, 86_400 * 7, `Der Cooldown muss mindestens ${L.MIN_COOLDOWN_SEC} Sekunden betragen.`);
     const skipIfSelf = b.skipIfSelf === undefined ? false : b.skipIfSelf;
     if (typeof skipIfSelf !== 'boolean') throw bad('skipIfSelf', 'Ungültige Einstellung.');
@@ -345,7 +348,7 @@ export function createApi(deps: ApiDeps) {
       id, ownerId: u.id, name, enabled: typeof b.enabled === 'boolean' ? b.enabled : enabledDefault,
       matcher: { mode: m.mode, pattern: m.pattern, caseSensitive: m.caseSensitive === true },
       sender: { badges, logins, exclude: s.exclude === true },
-      burst: { threshold: int(bu.threshold ?? 1, 'burst.threshold', 1, 100, 'Die Schwelle muss zwischen 1 und 100 liegen.'), ...(minPercent === undefined ? {} : { minPercent }), windowSec: int(bu.windowSec ?? 60, 'burst.windowSec', 5, 3600, 'Das Fenster muss zwischen 5 und 3600 Sekunden liegen.'), countBy },
+      burst: { threshold: int(bu.threshold ?? 1, 'burst.threshold', 1, 100, 'Die Schwelle muss zwischen 1 und 100 liegen.'), ...(minPercent === undefined ? {} : { minPercent }), ...(aw === undefined ? {} : { activeWindowMin: aw }), windowSec: int(bu.windowSec ?? 60, 'burst.windowSec', 5, 3600, 'Das Fenster muss zwischen 5 und 3600 Sekunden liegen.'), countBy },
       cooldownSec, skipIfSelf, channelIds, targetIds,
     };
   }
@@ -394,7 +397,7 @@ export function createApi(deps: ApiDeps) {
       channel: channelLogin, channelId: channel?.id ?? '', userId: 'test', login: 'test', displayName: 'Test',
       text: sampleText, badges: [], sentAt: firedAt, receivedAt: firedAt,
     };
-    const threshold = effectiveThreshold(rule.burst, deps.activeChatters?.(channel?.id ?? '') ?? 0);
+    const threshold = effectiveThreshold(rule.burst, deps.activeChatters?.(channel?.id ?? '', rule.burst.activeWindowMin) ?? 0);
     const hit: Hit = {
       ruleId: rule.id, ruleName: rule.name, ownerId: rule.ownerId, channelId: sample.channelId, channel: channelLogin,
       channelDisplayName: channel?.displayName ?? channelLogin, channelAvatar: channel?.avatarUrl ?? null,

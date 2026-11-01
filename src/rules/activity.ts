@@ -1,4 +1,4 @@
-export const ACTIVITY_WINDOW_MS = 10 * 60_000;
+export const ACTIVITY_WINDOW_MS = 30 * 60_000; // longest selectable window; users are kept this long
 const CHATTER_LIMIT = 10_000;
 
 export function createActivityTracker(now: () => number) {
@@ -24,13 +24,15 @@ export function createActivityTracker(now: () => number) {
       if (!entries) channels.set(channelId, (entries = new Map()));
       if (entries.size < CHATTER_LIMIT || entries.has(userId)) entries.set(userId, t);
     },
-    count(channelId: string): number {
+    count(channelId: string, windowMin = 10): number {
       const entries = channels.get(channelId);
       if (!entries) return 0;
       const t = now();
       prune(entries, t);
       if (!entries.size) channels.delete(channelId);
-      return entries.size;
+      let n = 0;
+      for (const seenAt of entries.values()) if (seenAt > t - windowMin * 60_000) n++;
+      return n;
     },
     retain(channelIds: Iterable<string>): void {
       const retained = new Set(channelIds);

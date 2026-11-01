@@ -17,7 +17,7 @@ export interface Form {
   name: string; enabled: boolean;
   mode: MatchMode; pattern: string; blocks: Block[] | null; caseSensitive: boolean;
   badges: Badge[]; logins: string[]; exclude: boolean;
-  threshold: string; minPercent: string; windowSec: string; countBy: 'users' | 'messages';
+  threshold: string; minPercent: string; activeWindowMin: '5' | '10' | '30'; windowSec: string; countBy: 'users' | 'messages';
   cdVal: string; cdUnit: 's' | 'min';
   skipIfSelf: boolean;
   channelIds: string[]; targetIds: string[];
@@ -25,7 +25,7 @@ export interface Form {
 
 export const emptyForm = (): Form => ({
   name: '', enabled: true, mode: 'contains', pattern: '', blocks: null, caseSensitive: false,
-  badges: [], logins: [], exclude: false, threshold: '1', minPercent: '', windowSec: '60', countBy: 'users',
+  badges: [], logins: [], exclude: false, threshold: '1', minPercent: '', activeWindowMin: '10', windowSec: '60', countBy: 'users',
   cdVal: '5', cdUnit: 'min', skipIfSelf: false, channelIds: [], targetIds: [],
 });
 
@@ -46,7 +46,7 @@ export function fromRule(r: Rule): Form {
   return {
     name: r.name, enabled: r.enabled, mode: r.matcher.mode, pattern: r.matcher.pattern, blocks: null, caseSensitive: r.matcher.caseSensitive,
     badges: r.sender.badges, logins: r.sender.logins, exclude: r.sender.exclude,
-    threshold: String(r.burst.threshold), minPercent: r.burst.minPercent ? String(r.burst.minPercent) : '', windowSec: String(r.burst.windowSec), countBy: r.burst.countBy,
+    threshold: String(r.burst.threshold), minPercent: r.burst.minPercent ? String(r.burst.minPercent) : '', activeWindowMin: String(r.burst.activeWindowMin ?? 10) as Form['activeWindowMin'], windowSec: String(r.burst.windowSec), countBy: r.burst.countBy,
     cdVal: String(min ? r.cooldownSec / 60 : r.cooldownSec), cdUnit: min ? 'min' : 's',
     skipIfSelf: r.skipIfSelf,
     channelIds: r.channelIds, targetIds: r.targetIds,
@@ -65,7 +65,7 @@ export function toBody(f: Form) {
     name: f.name.trim(), enabled: f.enabled,
     matcher: { mode: f.mode, pattern: f.pattern, caseSensitive: f.caseSensitive },
     sender: { badges: f.badges, logins: f.logins, exclude: f.exclude },
-    burst: { threshold: Number.isFinite(t) ? t : 1, ...(num(f.minPercent) > 0 ? { minPercent: num(f.minPercent) } : {}), windowSec: Number.isFinite(w) ? w : 60, countBy: f.countBy },
+    burst: { threshold: Number.isFinite(t) ? t : 1, ...(num(f.minPercent) > 0 ? { minPercent: num(f.minPercent) } : {}), ...(f.activeWindowMin === '10' ? {} : { activeWindowMin: Number(f.activeWindowMin) as 5 | 30 }), windowSec: Number.isFinite(w) ? w : 60, countBy: f.countBy },
     cooldownSec: Number.isFinite(c) ? Math.round(c) : 300,
     skipIfSelf: f.skipIfSelf,
     channelIds: f.channelIds, targetIds: f.targetIds,

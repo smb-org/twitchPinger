@@ -467,7 +467,7 @@ test('channel activity requires auth and only returns the caller channels', asyn
   const one = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_one' } }))).channel;
   await a.req('/channels', { method: 'POST', cookie: bob.cookie, body: { login: 'marbles_two' } });
   assert.equal((await a.req('/channels/activity')).status, 401);
-  assert.deepEqual((await j(await a.req('/channels/activity', { cookie: alice }))).channels, [{ channelId: one.id, active: 12 }]);
+  assert.deepEqual((await j(await a.req('/channels/activity', { cookie: alice }))).channels, [{ channelId: one.id, active: { '5': 12, '10': 12, '30': 12 } }]);
 });
 
 test('rule test uses the channel effective threshold without changing rule state or history', async () => {
@@ -794,4 +794,31 @@ test('follow refresh: unsafe returnTo falls back to /', async () => {
     assert.equal((await a.login('admin', undefined, { returnTo: bad })).location, '/', bad);
   }
   assert.equal((await a.login('admin', undefined, { returnTo: '/onboarding?step=2' })).location, '/onboarding?step=2');
+});
+
+test('burst.activeWindowMin accepts only 5, 10 or 30 and is optional', async () => {
+  const a = setup({ MAX_RULES_PER_USER: 10 });
+  const { alice } = await member(a);
+  const ch = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_one' } }))).channel;
+  const post = (burst: unknown) => a.req('/rules', { method: 'POST', cookie: alice, body: { name: 'play', matcher: { mode: 'word', pattern: '!play' }, burst, cooldownSec: 60, channelIds: [ch.id] } });
+  for (const w of [15, 0, '10', 4.5]) {
+    const r = await post({ threshold: 2, windowSec: 60, minPercent: 10, activeWindowMin: w });
+    assert.equal(r.status, 400);
+    const e = (await j(r)).error;
+    assert.deepEqual([e.field, e.message], ['burst.activeWindowMin', 'Der Zeitraum muss 5, 10 oder 30 Minuten sein.']);
+  }
+  for (const w of [5, 10, 30]) assert.equal((await j(await post({ threshold: 2, windowSec: 60, minPercent: 10, activeWindowMin: w }))).rule.burst.activeWindowMin, w);
+  assert.equal((await j(await post({ threshold: 2, windowSec: 60, minPercent: 10 }))).rule.burst.activeWindowMin, undefined);
+});
+
+test('rule test and overview ask for the rule window', async () => {
+  const asked: number[] = [];
+  const a = setup({}, {}, { activeChatters: (_id: string, w?: number) => { asked.push(w ?? -1); return w === 30 ? 60 : 10; } });
+  const { alice } = await member(a);
+  const ch = (await j(await a.req('/channels', { method: 'POST', cookie: alice, body: { login: 'marbles_one' } }))).channel;
+  a.repo.saveTarget({ id: 't1', ownerId: '2', kind: 'ntfy', name: 't1', url: 'https://ntfy.example/topic', token: null });
+  const rule = (await j(await a.req('/rules', { method: 'POST', cookie: alice, body: { name: 'r', matcher: { mode: 'word', pattern: '!play' }, channelIds: [ch.id], targetIds: ['t1'], burst: { threshold: 3, minPercent: 10, windowSec: 30, activeWindowMin: 30 } } }))).rule;
+  await a.req(`/rules/${rule.id}/test`, { method: 'POST', cookie: alice });
+  assert.equal(a.ruleTests[0].hit.burst.threshold, 6);
+  assert.ok(asked.includes(30));
 });

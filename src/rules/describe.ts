@@ -28,9 +28,9 @@ export function describeRule(rule: Rule, channelLabels: string[]): string {
   let head: string;
   if (b.countBy === 'users') {
     const count = b.threshold === 1 ? '1 Chatter' : `${b.threshold} verschiedene Chatter`;
-    head = `Meldet, wenn mindestens ${count}${b.minPercent ? ` (in vollen Chats mehr: ${b.minPercent} % der aktiven Chatter)` : ''} innerhalb von ${b.windowSec} s eine Nachricht ${b.threshold === 1 ? 'schreibt' : 'schreiben'}, ${cond(false)}`;
+    head = `Meldet, wenn mindestens ${count}${b.minPercent ? ` (in vollen Chats mehr: ${b.minPercent} % der in den letzten ${b.activeWindowMin ?? 10} Min aktiven Chatter)` : ''} innerhalb von ${b.windowSec} s eine Nachricht ${b.threshold === 1 ? 'schreibt' : 'schreiben'}, ${cond(false)}`;
   } else {
-    const percent = b.minPercent ? ` (in vollen Chats mehr: so viele wie ${b.minPercent} % der aktiven Chatter)` : '';
+    const percent = b.minPercent ? ` (in vollen Chats mehr: so viele wie ${b.minPercent} % der in den letzten ${b.activeWindowMin ?? 10} Min aktiven Chatter)` : '';
     head = `Meldet, wenn mindestens ${b.threshold} Nachrichten${percent}, ${cond(true)}, innerhalb von ${b.windowSec} s geschrieben werden`;
   }
   const who = [...s.badges.map((x) => BADGE_DE[x]), ...s.logins];
@@ -57,7 +57,7 @@ export function simulateThreshold(rule: Rule, messages: ChatMessage[]): { hits: 
     users.add(msg.userId);
     let st = states.get(msg.channelId);
     if (!st) states.set(msg.channelId, (st = createBurstState()));
-    if (step(st, rule.burst, rule.cooldownSec, msg, msg.sentAt, effectiveThreshold(rule.burst, activity.count(msg.channelId))).fired) fires++;
+    if (step(st, rule.burst, rule.cooldownSec, msg, msg.sentAt, effectiveThreshold(rule.burst, activity.count(msg.channelId, rule.burst.activeWindowMin))).fired) fires++;
   }
   return { hits, chatters: users.size, fires };
 }

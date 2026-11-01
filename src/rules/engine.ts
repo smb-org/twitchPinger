@@ -97,7 +97,7 @@ export function createEngine(deps: EngineDeps) {
           tally.mentions++;
           addChatter(tally.chatters, msg.userId);
         }
-        const threshold = effectiveThreshold(rule.burst, activity.count(msg.channelId));
+        const threshold = effectiveThreshold(rule.burst, activity.count(msg.channelId, rule.burst.activeWindowMin));
         const r = step(st, rule.burst, rule.cooldownSec, msg, now, threshold);
         if (!r.fired) continue;
         const firedAt = now;
@@ -123,7 +123,7 @@ export function createEngine(deps: EngineDeps) {
       return { messages, avgMatchMicros: messages ? totalMicros / messages : 0, maxMatchMicros: maxMicros };
     },
 
-    activeChatters(channelId: string): number { return activity.count(channelId); },
+    activeChatters(channelId: string, windowMin?: number): number { return activity.count(channelId, windowMin); },
 
     retainActivity(channelIds: Iterable<string>): void { activity.retain(channelIds); },
 
@@ -137,7 +137,7 @@ export function createEngine(deps: EngineDeps) {
         const hits = cooling ? [] : state.hits.filter((h) => h.t > cutoff);
         const inWindow = c.rule.burst.countBy === 'users' ? new Set(hits.map((h) => h.key)).size : hits.length;
         const tally = c.tallies.get(channelId);
-        return { channelId, inWindow, threshold: effectiveThreshold(c.rule.burst, activity.count(channelId)), cooling, tally: tally ? { since: tally.since, mentions: tally.mentions, chatters: tally.chatters.size } : null };
+        return { channelId, inWindow, threshold: effectiveThreshold(c.rule.burst, activity.count(channelId, c.rule.burst.activeWindowMin)), cooling, tally: tally ? { since: tally.since, mentions: tally.mentions, chatters: tally.chatters.size } : null };
       });
     },
   };
