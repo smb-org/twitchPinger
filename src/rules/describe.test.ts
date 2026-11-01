@@ -20,12 +20,12 @@ test('describeRule: threshold 1, modes, cooldown', () => {
 
 test('describeRule mentions the active chatter share when configured', () => {
   const r = rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'users' } });
-  assert.match(describeRule(r, []), /mindestens 3 verschiedene Chatter \(und mindestens 10 % der aktiven Chatter\) innerhalb von 60 s/);
+  assert.match(describeRule(r, []), /mindestens 3 verschiedene Chatter \(in vollen Chats mehr: 10 % der aktiven Chatter\) innerhalb von 60 s/);
 });
 
 test('message thresholds describe a minimum share without claiming a share of chatters', () => {
   const r = rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'messages' } });
-  assert.equal(describeRule(r, []), 'Meldet, wenn mindestens 3 Nachrichten (und mindestens so viele wie 10 % der aktiven Chatter), die mit „!play“ beginnen, innerhalb von 60 s geschrieben werden, danach 5 min Ruhe.');
+  assert.equal(describeRule(r, []), 'Meldet, wenn mindestens 3 Nachrichten (in vollen Chats mehr: so viele wie 10 % der aktiven Chatter), die mit „!play“ beginnen, innerhalb von 60 s geschrieben werden, danach 5 min Ruhe.');
 });
 
 test('threshold of one uses singular chatter wording and still says at least', () => {

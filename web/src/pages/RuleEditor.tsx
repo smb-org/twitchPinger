@@ -193,9 +193,9 @@ export function RuleEditor({ id }: { id: string | null }) {
                 <span>s</span>
               </div>
               <div class="inline-row wrap min-percent-row">
-                <span>und mindestens</span>
+                <span>wächst mit</span>
                 <input class="num mono" type="number" min={1} max={100} aria-label="Prozent der aktiven Chatter" value={form.minPercent} onInput={(e) => upd({ minPercent: val(e) })} />
-                <span>% der aktiven Chatter</span>
+                <span>% der aktiven Chatter, nie unter {Number.isFinite(parseInt(form.threshold, 10)) ? parseInt(form.threshold, 10) : '–'}</span>
               </div>
               <div class="activity-lines" role="group" aria-label="Aktive Chatter je Channel">
                 {channels.filter((c) => form.channelIds.includes(c.id)).map((c) => {
