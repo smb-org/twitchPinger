@@ -120,7 +120,7 @@ export function createApi(deps: ApiDeps) {
 
   app.get('/auth/login', (c) => {
     const invite = (c.req.query('invite') ?? '').slice(0, 200) || null;
-    const { state, cookie } = signState(config.sessionSecret, invite, now());
+    const { state, cookie } = signState(config.sessionSecret, invite, now(), c.req.query('returnTo'));
     setCookie(c, STATE_COOKIE, cookie, { ...cookieBase, path: '/api/auth', maxAge: 600 });
     return c.redirect(twitch.authorizeUrl(state, redirectUri));
   });
@@ -172,8 +172,11 @@ export function createApi(deps: ApiDeps) {
     const sid = newSessionId();
     repo.insertSession(hashSessionId(sid), tu.id, t, t + SESSION_TTL_MS, follows);
     setCookie(c, SESSION_COOKIE, sid, { ...cookieBase, maxAge: SESSION_TTL_MS / 1000 });
+    // A refresh login replaces the old session instead of piling up rows.
+    const oldSid = getCookie(c, SESSION_COOKIE);
+    if (oldSid) repo.deleteSession(hashSessionId(oldSid));
     if (isNew) changed();
-    return c.redirect(isNew ? '/onboarding' : '/');
+    return c.redirect(isNew ? '/onboarding' : st.returnTo ?? '/');
   });
 
   // ---- Discord account linking ----
