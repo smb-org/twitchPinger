@@ -20,12 +20,12 @@ test('describeRule: threshold 1, modes, cooldown', () => {
 
 test('describeRule mentions the active chatter share when configured', () => {
   const r = rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'users' } });
-  assert.match(describeRule(r, []), /mindestens 3 verschiedene Chatter \(in vollen Chats mehr: 10 % der aktiven Chatter\) innerhalb von 60 s/);
+  assert.match(describeRule(r, []), /mindestens 3 verschiedene Chatter \(in vollen Chats mehr: 10 % der in den letzten 10 Min aktiven Chatter\) innerhalb von 60 s/);
 });
 
 test('message thresholds describe a minimum share without claiming a share of chatters', () => {
   const r = rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'messages' } });
-  assert.equal(describeRule(r, []), 'Meldet, wenn mindestens 3 Nachrichten (in vollen Chats mehr: so viele wie 10 % der aktiven Chatter), die mit „!play“ beginnen, innerhalb von 60 s geschrieben werden, danach 5 min Ruhe.');
+  assert.equal(describeRule(r, []), 'Meldet, wenn mindestens 3 Nachrichten (in vollen Chats mehr: so viele wie 10 % der in den letzten 10 Min aktiven Chatter), die mit „!play“ beginnen, innerhalb von 60 s geschrieben werden, danach 5 min Ruhe.');
 });
 
 test('threshold of one uses singular chatter wording and still says at least', () => {
@@ -58,4 +58,17 @@ test('simulateThreshold scales from active non-command chatters before matching'
   const r = rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'users' } });
   assert.deepEqual(simulateThreshold(r, [...active, ...commands.slice(0, 3)]), { hits: 3, chatters: 3, fires: 0 });
   assert.deepEqual(simulateThreshold(r, [...active, ...commands]), { hits: 6, chatters: 6, fires: 1 });
+});
+
+test('describeRule names the activity window and replay respects it', () => {
+  const r = (activeWindowMin?: 5 | 30) => rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'users', ...(activeWindowMin ? { activeWindowMin } : {}) } });
+  assert.match(describeRule(r(), []), /10 % der in den letzten 10 Min aktiven Chatter\)/);
+  assert.match(describeRule(r(30), []), /10 % der in den letzten 30 Min aktiven Chatter\)/);
+  const m = rule({ burst: { threshold: 3, minPercent: 10, windowSec: 60, countBy: 'messages', activeWindowMin: 5 } });
+  assert.match(describeRule(m, []), /so viele wie 10 % der in den letzten 5 Min aktiven Chatter\)/);
+  const base = 10_000;
+  const old = Array.from({ length: 60 }, (_, i) => msg('hello', { userId: `a${i}`, sentAt: base + i }));
+  const cmds = Array.from({ length: 3 }, (_, i) => msg('!play', { userId: `n${i}`, sentAt: base + 20 * 60_000 + i }));
+  assert.equal(simulateThreshold(r(5), [...old, ...cmds]).fires, 1);
+  assert.equal(simulateThreshold(r(30), [...old, ...cmds]).fires, 0);
 });

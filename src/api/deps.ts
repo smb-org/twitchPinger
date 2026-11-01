@@ -49,7 +49,7 @@ export interface ApiDeps {
   /** Called after every mutation that affects channels, rules or users. */
   onConfigChanged(immediate?: boolean): void;
   live?(ruleId: string): { channelId: string; inWindow: number; threshold?: number; cooling: boolean; tally: { since: number; mentions: number; chatters: number } | null }[];
-  activeChatters?(channelId: string): number;
+  activeChatters?(channelId: string, windowMin?: number): number;
   /** Clock in ms, injectable for tests. */
   now?(): number;
 }

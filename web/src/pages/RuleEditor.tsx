@@ -35,7 +35,7 @@ export function RuleEditor({ id }: { id: string | null }) {
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<'rule' | 'preview'>('rule');
   const [pvLogin, setPvLogin] = useState('');
-  const [activity, setActivity] = useState<Record<string, number>>({});
+  const [activity, setActivity] = useState<Record<string, Record<'5' | '10' | '30', number>>>({});
   const [draft, setDraft] = useState('');
   const [loginErr, setLoginErr] = useState('');
   const existing = id ? base.data?.rules.find((r) => r.id === id) : undefined;
@@ -55,7 +55,7 @@ export function RuleEditor({ id }: { id: string | null }) {
   useEffect(() => {
     if (!base.data) return;
     let active = true;
-    const refresh = () => { void api<{ channels: { channelId: string; active: number }[] }>('GET', '/channels/activity').then((r) => {
+    const refresh = () => { void api<{ channels: { channelId: string; active: Record<'5' | '10' | '30', number> }[] }>('GET', '/channels/activity').then((r) => {
       if (active) setActivity(Object.fromEntries(r.channels.map((ch) => [ch.channelId, ch.active])));
     }).catch(() => {}); };
     refresh();
@@ -195,11 +195,15 @@ export function RuleEditor({ id }: { id: string | null }) {
               <div class="inline-row wrap min-percent-row">
                 <span>wächst mit</span>
                 <input class="num mono" type="number" min={1} max={100} aria-label="Prozent der aktiven Chatter" value={form.minPercent} onInput={(e) => upd({ minPercent: val(e) })} />
-                <span>% der aktiven Chatter, nie unter {Number.isFinite(parseInt(form.threshold, 10)) ? parseInt(form.threshold, 10) : '–'}</span>
+                <span>% der in den letzten</span>
+                <select aria-label="Zeitraum der aktiven Chatter" value={form.activeWindowMin} onChange={(e) => upd({ activeWindowMin: e.currentTarget.value as typeof form.activeWindowMin })}>
+                  <option value="5">5 Min</option><option value="10">10 Min</option><option value="30">30 Min</option>
+                </select>
+                <span>aktiven Chatter, nie unter {Number.isFinite(parseInt(form.threshold, 10)) ? parseInt(form.threshold, 10) : '–'}</span>
               </div>
               <div class="activity-lines" role="group" aria-label="Aktive Chatter je Channel">
                 {channels.filter((c) => form.channelIds.includes(c.id)).map((c) => {
-                  const active = activity[c.id];
+                  const active = activity[c.id]?.[form.activeWindowMin];
                   const threshold = active === undefined || !liveThresholdValid ? '–' : effectiveThreshold(rule.burst, active);
                   return <div class="activity-line mono" key={c.id}>@{c.login}: gerade {active === undefined ? '–' : active} aktiv → Schwelle {threshold}</div>;
                 })}

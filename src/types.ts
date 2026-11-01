@@ -9,7 +9,7 @@ export interface Matcher { mode: MatchMode; pattern: string; caseSensitive: bool
 /** Restricts which senders count; `exclude` inverts the filter. */
 export interface SenderFilter { badges: Badge[]; logins: string[]; exclude: boolean; }
 /** Fire only after `threshold` hits within `windowSec`. */
-export interface Burst { threshold: number; minPercent?: number; windowSec: number; countBy: 'users' | 'messages'; }
+export interface Burst { threshold: number; minPercent?: number; activeWindowMin?: 5 | 10 | 30; windowSec: number; countBy: 'users' | 'messages'; }
 /** A user-defined notification rule. */
 export interface Rule { id: string; ownerId: string; name: string; enabled: boolean; matcher: Matcher; sender: SenderFilter; burst: Burst; cooldownSec: number; skipIfSelf: boolean; channelIds: string[]; targetIds: string[]; updatedAt: number; }
 /** Delivery channel type. */
