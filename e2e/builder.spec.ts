@@ -65,6 +65,13 @@ test('rule builder preview, no layout shift, save', async ({ browser }) => {
   await page.getByRole('button', { name: 'Speichern' }).click();
   await expect(page.getByText('Gespeichert, Fenster zurückgesetzt')).toBeVisible();
   await expect(page).toHaveURL(/\/rules\/.+/);
+  const skipReplies = page.getByLabel('Antworten an mich ignorieren');
+  await skipReplies.check();
+  const saved = page.waitForResponse((r) => r.request().method() === 'PUT' && /\/api\/rules\/[^/]+$/.test(new URL(r.url()).pathname));
+  await page.getByRole('button', { name: 'Speichern' }).click();
+  expect((await saved).ok()).toBe(true);
+  await page.reload();
+  await expect(page.getByLabel('Antworten an mich ignorieren')).toBeChecked();
 });
 
 test('long whole-word patterns stay in word mode and explain reserved regex space', async ({ browser }) => {

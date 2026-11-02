@@ -424,6 +424,7 @@ test('rules: create/update/delete, validation errors, limit, ownership, updatedA
   assert.equal((await err({ ...base, matcher: { mode: 'contains', pattern: 'a'.repeat(201) } })).field, 'matcher.pattern');
   assert.equal((await err({ ...base, cooldownSec: 29 })).field, 'cooldownSec');
   assert.equal((await err({ ...base, skipIfSelf: 'yes' })).field, 'skipIfSelf');
+  assert.equal((await err({ ...base, skipReplies: 'yes' })).field, 'skipReplies');
   assert.equal((await err({ ...base, burst: { threshold: 0, windowSec: 60 } })).field, 'burst.threshold');
   assert.equal((await err({ ...base, burst: { threshold: 101, windowSec: 60 } })).field, 'burst.threshold');
   assert.equal((await err({ ...base, burst: { threshold: 2, windowSec: 60, minPercent: 101 } })).message, 'Der Anteil muss zwischen 1 und 100 Prozent liegen.');
@@ -440,10 +441,13 @@ test('rules: create/update/delete, validation errors, limit, ownership, updatedA
   assert.equal(rule.burst.countBy, 'users');
   assert.equal(rule.burst.minPercent, undefined);
   assert.equal(rule.skipIfSelf, false);
+  assert.equal(rule.skipReplies, false);
   a.advance(5000);
   const put = await a.req(`/rules/${rule.id}`, { method: 'PUT', cookie: alice, body: { ...base, name: 'renamed', skipIfSelf: true } });
   const updated = await j(put);
   assert.equal(updated.rule.skipIfSelf, true);
+  const putReplies = await a.req(`/rules/${rule.id}`, { method: 'PUT', cookie: alice, body: { ...base, name: 'renamed', skipReplies: true } });
+  assert.equal((await j(putReplies)).rule.skipReplies, true);
   assert.equal(updated.rule.updatedAt, 1_005_000);
   // other user cannot touch it
   assert.equal((await a.req(`/rules/${rule.id}`, { method: 'PUT', cookie: admin, body: base })).status, 404);
@@ -609,6 +613,10 @@ test('preview: only own channels', async () => {
   const ok = await j(await a.req('/preview?channel=marbles_one', { cookie: alice }));
   assert.equal(ok.messages[0].text, '!play');
   assert.deepEqual(Object.keys(ok.messages[0]).sort(), ['badges', 'displayName', 'login', 'sentAt', 'text', 'userId']);
+  const recent = a.deps.reader.recent;
+  a.deps.reader.recent = () => [{ ...recent('marbles_one')[0]!, replyToUserId: 'parent' }];
+  const reply = await j(await a.req('/preview?channel=marbles_one', { cookie: alice }));
+  assert.equal(reply.messages[0].replyToUserId, 'parent');
   assert.equal((await a.req('/preview?channel=marbles_one', { cookie: admin })).status, 404);
   assert.equal((await a.req('/preview?channel=other_chan', { cookie: alice })).status, 404);
 });

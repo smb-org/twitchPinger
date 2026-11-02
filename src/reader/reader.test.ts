@@ -50,6 +50,16 @@ test('maps messages', async () => {
   assert.equal(msgs.length, 1);
 });
 
+test('maps Twitch reply parent user id', async () => {
+  const { c, r, msgs } = setup();
+  await r.start();
+  await r.setChannels(['chan']);
+  c.msg('#chan', 'bob', 'reply', { ...raw(), parentMessageUserId: 'parent-user' });
+  assert.equal(msgs[0].replyToUserId, 'parent-user');
+  c.msg('#chan', 'bob', 'not a reply', { ...raw(), parentMessageUserId: null });
+  assert.equal('replyToUserId' in msgs[1], false);
+});
+
 test('ring buffer caps, oldest first, copy', async () => {
   const { c, r } = setup(3);
   await r.start();

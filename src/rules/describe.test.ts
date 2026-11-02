@@ -39,6 +39,7 @@ test('describeRule: messages and sender', () => {
   const e = rule({ sender: { badges: [], logins: ['bot'], exclude: true } });
   assert.match(describeRule(e, []), /, außer von bot, danach/);
   assert.match(describeRule(rule({ skipIfSelf: true }), []), /wenn du im Zeitfenster selbst ausgelöst hast/);
+  assert.match(describeRule(rule({ skipReplies: true }), []), /Antworten an dich werden ignoriert/);
 });
 
 test('simulateThreshold', () => {
@@ -49,6 +50,26 @@ test('simulateThreshold', () => {
   ];
   assert.deepEqual(simulateThreshold(rule(), ms), { hits: 6, chatters: 5, fires: 1 });
   assert.deepEqual(simulateThreshold(rule({ sender: { badges: ['vip'], logins: [], exclude: false } }), ms), { hits: 0, chatters: 0, fires: 0 });
+});
+
+test('simulateThreshold learns owner login from replay and skips direct replies and recent mentions', () => {
+  const r = rule({ skipReplies: true, burst: { threshold: 1, windowSec: 60, countBy: 'messages' } });
+  const ms = [
+    msg('hello', { userId: 'o1', login: 'esembe', sentAt: 1_000 }),
+    msg('!play @ESEMBE hi', { userId: 'u2', sentAt: 2_000 }),
+    msg('!play reply', { userId: 'u3', replyToUserId: 'o1', sentAt: 3_000 }),
+    msg('!play hello', { userId: 'u4', sentAt: 4_000 }),
+  ];
+  assert.deepEqual(simulateThreshold(r, ms), { hits: 1, chatters: 1, fires: 1 });
+});
+
+test('simulateThreshold skips a direct reply to the owner', () => {
+  const r = rule({ skipReplies: true });
+  const ms = [
+    msg('hello', { userId: 'o1', login: 'esembe', sentAt: 1_000 }),
+    msg('!play reply', { userId: 'u2', replyToUserId: 'o1', sentAt: 2_000 }),
+  ];
+  assert.deepEqual(simulateThreshold(r, ms), { hits: 0, chatters: 0, fires: 0 });
 });
 
 test('simulateThreshold scales from active non-command chatters before matching', () => {

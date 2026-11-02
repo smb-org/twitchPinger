@@ -3,6 +3,7 @@ import { compileMatcher, matchesSender } from './matcher.ts';
 import { cooldownMs, createBurstState, effectiveThreshold, step } from './burst.ts';
 import type { BurstState } from './burst.ts';
 import { createActivityTracker } from './activity.ts';
+import { compileOwnerMention, isRecentOwnerMention } from './replies.ts';
 
 export interface EngineDeps {
   now: () => number;
@@ -39,6 +40,8 @@ export function createEngine(deps: EngineDeps) {
   let totalMicros = 0;
   let maxMicros = 0;
   const activity = createActivityTracker(deps.now);
+  const ownerActivity = new Map<string, { at: number; login: string; mention: RegExp }>();
+  const ownerKey = (ownerId: string, channelId: string) => `${ownerId}\n${channelId}`;
 
   return {
     setRules(rules: Rule[]): void {
@@ -66,17 +69,27 @@ export function createEngine(deps: EngineDeps) {
           if (l) l.push(c); else byChannel.set(ch, [c]);
         }
       }
+      const owners = new Set([...next.values()].flatMap((c) => c.rule.channelIds.map((ch) => ownerKey(c.rule.ownerId, ch))));
+      for (const key of ownerActivity.keys()) if (!owners.has(key)) ownerActivity.delete(key);
     },
 
     ingest(msg: ChatMessage): void {
       activity.record(msg.channelId, msg.userId, msg.text);
       const list = byChannel.get(msg.channelId);
       if (!list) return;
+      const now = deps.now();
+      const owner = list.find((c) => c.rule.ownerId === msg.userId);
+      if (owner) {
+        const key = ownerKey(msg.userId, msg.channelId);
+        const old = ownerActivity.get(key);
+        ownerActivity.set(key, { at: now, login: msg.login, mention: old?.login === msg.login ? old.mention : compileOwnerMention(msg.login) });
+      }
       const t0 = performance.now();
       for (const c of list) {
         const { rule } = c;
         if (!c.match(msg.text).matched) continue;
-        const now = deps.now();
+        const ownerState = ownerActivity.get(ownerKey(rule.ownerId, msg.channelId));
+        if (rule.skipReplies && (msg.replyToUserId === rule.ownerId || isRecentOwnerMention(msg.text, ownerState?.mention, ownerState?.at, now))) continue;
         if (msg.userId === rule.ownerId) c.ownerMatches.set(msg.channelId, now);
         if (!matchesSender(rule.sender, msg)) continue;
         let st = c.states.get(msg.channelId);

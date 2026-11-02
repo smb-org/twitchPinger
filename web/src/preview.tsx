@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { ChatMessage } from '../../src/types.ts';
-import { compileMatcher, matchesSender } from '../../src/rules/matcher.ts';
 import type { Ranges } from '../../src/rules/matcher.ts';
-import { simulateThreshold } from '../../src/rules/describe.ts';
+import { eligibleRanges, simulateThreshold } from '../../src/rules/describe.ts';
 import { api, errText } from './api.ts';
 import type { Channel, PreviewMsg, Rule } from './api.ts';
 import { hhmmss } from './ui.tsx';
@@ -38,11 +37,11 @@ export function analyse(rule: Rule, login: string, msgs: PreviewMsg[] | null, si
   const none: Analysis = { ranges: [], hits: 0, chatters: 0, fires: null, invalid: false };
   if (!msgs || !rule.matcher.pattern) return { ...none, ranges: (msgs ?? []).map(() => null) };
   try {
-    const m = compileMatcher(rule.matcher);
-    const chat: ChatMessage[] = msgs.map((x) => ({ channel: login, channelId: login, userId: x.userId, login: x.login, displayName: x.displayName, text: x.text, badges: x.badges, sentAt: x.sentAt, receivedAt: x.sentAt }));
-    const ranges = chat.map((c) => { if (!matchesSender(rule.sender, c)) return null; const r = m(c.text); return r.matched ? r.ranges : null; });
-    const sim = simulate ? simulateThreshold(rule, chat) : null;
-    return { ranges, hits: sim?.hits ?? ranges.filter(Boolean).length, chatters: sim?.chatters ?? new Set(chat.filter((_, i) => ranges[i]).map((c) => c.userId)).size, fires: sim?.fires ?? null, invalid: false };
+    const chat: ChatMessage[] = msgs.map((x) => ({ channel: login, channelId: login, userId: x.userId, login: x.login, displayName: x.displayName, text: x.text, badges: x.badges, sentAt: x.sentAt, receivedAt: x.sentAt, ...(x.replyToUserId ? { replyToUserId: x.replyToUserId } : {}) }));
+    const ranges = eligibleRanges(rule, chat);
+    const sim = simulate ? simulateThreshold(rule, chat, ranges) : null;
+    const eligible = chat.filter((_, i) => ranges[i] !== null);
+    return { ranges, hits: sim?.hits ?? eligible.length, chatters: sim?.chatters ?? new Set(eligible.map((c) => c.userId)).size, fires: sim?.fires ?? null, invalid: false };
   } catch {
     return { ...none, ranges: msgs.map(() => null), invalid: true };
   }

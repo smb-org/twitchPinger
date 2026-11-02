@@ -17,14 +17,14 @@ function setup() {
 }
 const ruleOf = (id: string, ownerId: string, channelIds: string[] = [], targetIds: string[] = []) => ({
   id, ownerId, name: id, enabled: true, matcher: { mode: 'contains' as const, pattern: 'x', caseSensitive: false },
-  sender: { badges: [], logins: [], exclude: false }, burst: { threshold: 1, windowSec: 60, countBy: 'users' as const }, cooldownSec: 60, skipIfSelf: false, channelIds, targetIds,
+  sender: { badges: [], logins: [], exclude: false }, burst: { threshold: 1, windowSec: 60, countBy: 'users' as const }, cooldownSec: 60, skipIfSelf: false, skipReplies: false, channelIds, targetIds,
 });
 
 test('migrations set user_version and are idempotent', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tp-'));
   openDb(join(dir, 'a.db')).close();
   const db = openDb(join(dir, 'a.db'));
-  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 5);
+  assert.equal((db.prepare('PRAGMA user_version').get() as any).user_version, 6);
 });
 
 test('invite migration assigns unique personal codes and revokes unused legacy invites', () => {
@@ -32,6 +32,7 @@ test('invite migration assigns unique personal codes and revokes unused legacy i
   const old = new DatabaseSync(path);
   old.exec(`
     CREATE TABLE users (id TEXT PRIMARY KEY, login TEXT NOT NULL, display_name TEXT NOT NULL, is_admin INTEGER NOT NULL DEFAULT 0, locked INTEGER NOT NULL DEFAULT 0, invited_by TEXT, created_at INTEGER NOT NULL);
+    CREATE TABLE rules (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, matcher_json TEXT NOT NULL, sender_json TEXT NOT NULL, burst_json TEXT NOT NULL, cooldown_sec INTEGER NOT NULL, skip_if_self INTEGER NOT NULL DEFAULT 0, channel_ids_json TEXT NOT NULL, target_ids_json TEXT NOT NULL, updated_at INTEGER NOT NULL);
     CREATE TABLE invites (id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, created_by TEXT NOT NULL REFERENCES users(id), created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, used_by TEXT, used_at INTEGER, revoked INTEGER NOT NULL DEFAULT 0);
     INSERT INTO users VALUES ('u1', 'one', 'One', 0, 0, NULL, 1), ('u2', 'two', 'Two', 0, 0, NULL, 2);
     INSERT INTO invites VALUES ('open', 'hash-open', 'u1', 1, 100, NULL, NULL, 0), ('used', 'hash-used', 'u1', 1, 100, 'u2', 3, 0);
@@ -58,8 +59,10 @@ test('migration adds avatar_url and skip_if_self without losing existing rows', 
   const repo = createRepo(db);
   assert.deepEqual(repo.getChannel('c1'), { id: 'c1', login: 'one', displayName: 'One', avatarUrl: null });
   assert.equal(repo.getRule('legacy')?.skipIfSelf, false);
+  assert.equal(repo.getRule('legacy')?.skipReplies, false);
   assert.ok((db.prepare('PRAGMA table_info(channels)').all() as { name: string }[]).some((column) => column.name === 'avatar_url'));
   assert.equal((db.prepare('PRAGMA table_info(rules)').all() as { name: string }[]).some((column) => column.name === 'skip_if_self'), true);
+  assert.equal((db.prepare('PRAGMA table_info(rules)').all() as { name: string }[]).some((column) => column.name === 'skip_replies'), true);
   db.close();
 });
 
@@ -106,6 +109,14 @@ test('rule skipIfSelf round-trips and upsert updates the value', () => {
   assert.equal(repo.getRule('r1')?.skipIfSelf, true);
   repo.saveRule({ ...ruleOf('r1', 'u1'), skipIfSelf: false }, 6);
   assert.equal(repo.getRule('r1')?.skipIfSelf, false);
+});
+
+test('rule skipReplies round-trips true and false', () => {
+  const { repo } = setup();
+  repo.saveRule({ ...ruleOf('r1', 'u1'), skipReplies: true }, 5);
+  assert.equal(repo.getRule('r1')?.skipReplies, true);
+  repo.saveRule({ ...ruleOf('r1', 'u1'), skipReplies: false }, 6);
+  assert.equal(repo.getRule('r1')?.skipReplies, false);
 });
 
 test('target is failing after 3 consecutive failures, success resets', () => {

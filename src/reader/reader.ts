@@ -5,6 +5,7 @@ import type { Badge, ChatMessage, ReaderHealth } from '../types.ts';
 export interface RawChatMessage {
   date: Date;
   channelId: string | null;
+  parentMessageUserId?: string | null;
   userInfo: { userId: string; userName: string; displayName: string; isBroadcaster: boolean; isMod: boolean; isVip: boolean; isSubscriber: boolean };
 }
 
@@ -135,6 +136,7 @@ export function createReader(opts: ReaderOpts): Reader {
     const msg: ChatMessage = {
       channel: login, channelId: m.channelId ?? '', userId: u.userId, login: u.userName,
       displayName: u.displayName, text, badges, sentAt: m.date.getTime(), receivedAt: now(),
+      ...(m.parentMessageUserId != null ? { replyToUserId: m.parentMessageUserId } : {}),
     };
     lastMessageAt = msg.receivedAt;
     let buf = buffers.get(login);

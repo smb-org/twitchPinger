@@ -239,6 +239,92 @@ test('owner join timestamp is isolated by channel', () => {
   assert.deepEqual(hits.map((h) => h.channelId), ['c2']);
 });
 
+test('skipReplies skips replies to the owner and counts replies to another user', () => {
+  const { e, hits } = setup();
+  e.setRules([rule({ skipReplies: true, burst: one })]);
+  e.ingest(msg('!play reply', { userId: 'viewer', replyToUserId: 'o1' }));
+  assert.equal(hits.length, 0);
+  e.ingest(msg('!play reply', { userId: 'viewer2', replyToUserId: 'someone-else' }));
+  assert.equal(hits.length, 1);
+});
+
+test('skipReplies skips owner mentions for 4:59 and counts them after 5:01', () => {
+  const { e, hits, tick } = setup();
+  e.setRules([rule({ skipReplies: true, burst: one })]);
+  e.ingest(msg('hello', { userId: 'o1', login: 'esembe' }));
+  tick(299_000);
+  e.ingest(msg('!play @ESEMBE hi', { userId: 'viewer' }));
+  assert.equal(hits.length, 0);
+  tick(2_000);
+  e.ingest(msg('!play @esembe hi', { userId: 'viewer2' }));
+  assert.equal(hits.length, 1);
+});
+
+test('skipReplies mention matching requires a whole login word', () => {
+  const { e, hits } = setup();
+  e.setRules([rule({ skipReplies: true, burst: one })]);
+  e.ingest(msg('hello', { userId: 'o1', login: 'esembe' }));
+  e.ingest(msg('!play esembeFan', { userId: 'viewer' }));
+  assert.equal(hits.length, 1);
+});
+
+test('owner activity and learned login survive rule edits and are shared by rules', () => {
+  const { e, hits } = setup();
+  const first = rule({ skipReplies: true, burst: one });
+  const second = rule({ id: 'r2', skipReplies: true, burst: one });
+  e.setRules([first, second]);
+  e.ingest(msg('hello', { userId: 'o1', login: 'oldlogin' }));
+  e.ingest(msg('hello again', { userId: 'o1', login: 'newlogin' }));
+  e.setRules([{ ...first, updatedAt: 2 }, { ...second, updatedAt: 2 }]);
+  e.ingest(msg('!play @newlogin hi', { userId: 'viewer', login: 'viewer' }));
+  assert.equal(hits.length, 0);
+  e.ingest(msg('!play @oldlogin hi', { userId: 'viewer2', login: 'viewer2' }));
+  assert.equal(hits.length, 2);
+});
+
+test('skipIfSelf does not remember an owner reply skipped by skipReplies', () => {
+  const { e, hits } = setup();
+  e.setRules([rule({ skipIfSelf: true, skipReplies: true, burst: one, cooldownSec: 60 })]);
+  e.ingest(msg('!play owner reply', { userId: 'o1', login: 'esembe', replyToUserId: 'o1' }));
+  e.ingest(msg('!play viewer', { userId: 'u2' }));
+  assert.equal(hits.length, 1);
+});
+
+test('skipReplies uses Unicode word boundaries', () => {
+  for (const text of ['!play üesembe', '!play esembeÄ', '!play esembe猫']) {
+    const { e, hits } = setup();
+    e.setRules([rule({ skipReplies: true, burst: one })]);
+    e.ingest(msg('hello', { userId: 'o1', login: 'esembe' }));
+    e.ingest(msg(text, { userId: 'viewer' }));
+    assert.equal(hits.length, 1, text);
+  }
+  const { e, hits } = setup();
+  e.setRules([rule({ skipReplies: true, burst: one })]);
+  e.ingest(msg('hello', { userId: 'o1', login: 'esembe' }));
+  e.ingest(msg('!play @ESEMBE,', { userId: 'viewer' }));
+  assert.equal(hits.length, 0);
+});
+
+test('skipReplies includes exactly five minutes and expires after five minutes', () => {
+  const { e, hits, tick } = setup();
+  e.setRules([rule({ skipReplies: true, burst: one })]);
+  e.ingest(msg('hello', { userId: 'o1', login: 'esembe' }));
+  tick(300_000);
+  e.ingest(msg('!play @esembe', { userId: 'viewer' }));
+  assert.equal(hits.length, 0);
+  tick(1);
+  e.ingest(msg('!play @esembe', { userId: 'viewer2' }));
+  assert.equal(hits.length, 1);
+});
+
+test('skipReplies off does not skip a reply or owner mention', () => {
+  const { e, hits } = setup();
+  e.setRules([rule({ burst: one })]);
+  e.ingest(msg('hello', { userId: 'o1', login: 'esembe' }));
+  e.ingest(msg('!play @esembe hi', { userId: 'viewer', replyToUserId: 'o1' }));
+  assert.equal(hits.length, 1);
+});
+
 test('the rule window picks which active count scales the threshold', () => {
   const run = (activeWindowMin?: 5 | 30) => {
     const { e, hits, tick } = setup();

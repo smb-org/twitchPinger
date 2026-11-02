@@ -72,6 +72,7 @@ const MIGRATIONS: string[] = [
   CREATE UNIQUE INDEX users_invite_code ON users(invite_code);
   UPDATE invites SET revoked = 1 WHERE used_by IS NULL;
   `,
+  `ALTER TABLE rules ADD COLUMN skip_replies INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export function openDb(path: string): DatabaseSync {
