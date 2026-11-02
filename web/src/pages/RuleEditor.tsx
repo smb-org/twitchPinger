@@ -69,8 +69,8 @@ export function RuleEditor({ id }: { id: string | null }) {
 
   const pv = usePreview(pvLogin);
   const errs = form ? validate(form, me.limits) : {};
-  const rule = form ? toRule(form) : null;
-  const key = JSON.stringify(rule && [rule.matcher, rule.sender, rule.burst, rule.cooldownSec]);
+  const rule = form ? { ...toRule(form), ownerId: me.user.id } : null;
+  const key = JSON.stringify(rule && [rule.matcher, rule.sender, rule.burst, rule.cooldownSec, rule.skipReplies]);
   const an = useMemo(() => (rule ? analyse(rule, pvLogin, pv.messages, !errs.burst && !errs['matcher.pattern']) : null), [pv.messages, key, pvLogin]);
 
   if (!form || !rule || !an) {
@@ -225,6 +225,11 @@ export function RuleEditor({ id }: { id: string | null }) {
                 <span>Nicht melden, wenn ich selbst schon mitgemacht habe</span>
               </label>
               <p class="muted skip-self-hint">Hast du im Zeitfenster selbst ausgelöst (z. B. !play getippt), kommt keine Benachrichtigung; die Pause beginnt trotzdem.</p>
+              <label class="switch">
+                <input type="checkbox" checked={form.skipReplies} onChange={(e) => upd({ skipReplies: (e.target as HTMLInputElement).checked })} />
+                <span>Antworten an mich ignorieren</span>
+              </label>
+              <p class="muted skip-self-hint">Auch Erwähnungen, solange du in den letzten 5 Min selbst im Channel geschrieben hast.</p>
               <Err text={errs.cooldownSec || srvOf('cooldownSec')} />
             </fieldset>
 

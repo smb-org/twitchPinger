@@ -1,7 +1,9 @@
 import type { ChatMessage, Rule } from '../types.ts';
 import { compileMatcher, matchesSender } from './matcher.ts';
+import type { Ranges } from './matcher.ts';
 import { cooldownMs, createBurstState, effectiveThreshold, step } from './burst.ts';
 import { createActivityTracker } from './activity.ts';
+import { compileOwnerMention, isRecentOwnerMention } from './replies.ts';
 
 const BADGE_DE = { broadcaster: 'dem Broadcaster', moderator: 'Mods', vip: 'VIPs', subscriber: 'Subs' } as const;
 
@@ -37,22 +39,39 @@ export function describeRule(rule: Rule, channelLabels: string[]): string {
   const sender = who.length ? (s.exclude ? `, außer von ${list(who)}` : `, nur von ${list(who)}`) : '';
   const ch = channelLabels.length ? `, in ${list(channelLabels)}` : '';
   const self = rule.skipIfSelf ? ', aber nicht, wenn du im Zeitfenster selbst ausgelöst hast' : '';
-  return `${head}${sender}${ch}${self}, danach ${duration(cooldownMs(rule.cooldownSec) / 1000)} Ruhe.`;
+  const replies = rule.skipReplies ? ', Antworten an dich werden ignoriert' : '';
+  return `${head}${sender}${ch}${self}${replies}, danach ${duration(cooldownMs(rule.cooldownSec) / 1000)} Ruhe.`;
 }
 
-/** Replay messages (oldest first) through matcher, sender filter and burst, using sentAt as clock. */
-export function simulateThreshold(rule: Rule, messages: ChatMessage[]): { hits: number; chatters: number; fires: number } {
+/** Shared matcher, sender, and reply eligibility for replay counts and highlights. */
+export function eligibleRanges(rule: Rule, messages: ChatMessage[]): (Ranges | null)[] {
   const match = compileMatcher(rule.matcher);
+  const owners = new Map<string, { at: number; login: string; mention: RegExp }>();
+  return messages.map((msg) => {
+    if (msg.userId === rule.ownerId) {
+      const old = owners.get(msg.channelId);
+      owners.set(msg.channelId, { at: msg.sentAt, login: msg.login, mention: old?.login === msg.login ? old.mention : compileOwnerMention(msg.login) });
+    }
+    const result = match(msg.text);
+    if (!result.matched || !matchesSender(rule.sender, msg)) return null;
+    const owner = owners.get(msg.channelId);
+    if (rule.skipReplies && (msg.replyToUserId === rule.ownerId || isRecentOwnerMention(msg.text, owner?.mention, owner?.at, msg.sentAt))) return null;
+    return result.ranges;
+  });
+}
+
+/** Replay messages (oldest first) through the shared eligibility pass and burst, using sentAt as clock. */
+export function simulateThreshold(rule: Rule, messages: ChatMessage[], eligible = eligibleRanges(rule, messages)): { hits: number; chatters: number; fires: number } {
   const states = new Map<string, ReturnType<typeof createBurstState>>();
   let replayNow = messages[0]?.sentAt ?? 0;
   const activity = createActivityTracker(() => replayNow);
   const users = new Set<string>();
   let hits = 0;
   let fires = 0;
-  for (const msg of messages) {
+  for (const [i, msg] of messages.entries()) {
     replayNow = msg.sentAt;
     activity.record(msg.channelId, msg.userId, msg.text);
-    if (!matchesSender(rule.sender, msg) || !match(msg.text).matched) continue;
+    if (eligible[i] === null) continue;
     hits++;
     users.add(msg.userId);
     let st = states.get(msg.channelId);

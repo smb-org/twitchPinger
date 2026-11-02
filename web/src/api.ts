@@ -68,5 +68,5 @@ export interface TargetDto { id: string; kind: TargetKind; name: string; url: st
 export interface InvitesDto { link: string; used: number; max: number | null; invitees: { login: string; createdAt: number }[] }
 export interface AdminUser { id: string; login: string; displayName: string; isAdmin: boolean; locked: boolean; invitedBy: string | null; createdAt: number; ruleCount: number; channelCount: number }
 export interface AdminChannel { id: string; login: string; displayName: string; avatarUrl: string | null; users: number; rules: number; joined: boolean }
-export interface PreviewMsg { sentAt: number; userId: string; login: string; displayName: string; text: string; badges: Badge[] }
+export interface PreviewMsg { sentAt: number; userId: string; login: string; displayName: string; text: string; badges: Badge[]; replyToUserId?: string }
 export type { Rule, MatchMode, Badge };

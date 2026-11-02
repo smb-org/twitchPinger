@@ -1,7 +1,7 @@
 /** Chat badge roles relevant for sender filtering. */
 export type Badge = 'broadcaster' | 'moderator' | 'vip' | 'subscriber';
 /** A single Twitch chat message as delivered by the reader. */
-export interface ChatMessage { channel: string; channelId: string; userId: string; login: string; displayName: string; text: string; badges: Badge[]; sentAt: number; receivedAt: number; }
+export interface ChatMessage { channel: string; channelId: string; userId: string; login: string; displayName: string; text: string; badges: Badge[]; sentAt: number; receivedAt: number; replyToUserId?: string; }
 /** How a rule pattern is matched against message text. */
 export type MatchMode = 'contains' | 'word' | 'prefix' | 'regex';
 /** Text matching configuration of a rule. */
@@ -11,7 +11,7 @@ export interface SenderFilter { badges: Badge[]; logins: string[]; exclude: bool
 /** Fire only after `threshold` hits within `windowSec`. */
 export interface Burst { threshold: number; minPercent?: number; activeWindowMin?: 5 | 10 | 30; windowSec: number; countBy: 'users' | 'messages'; }
 /** A user-defined notification rule. */
-export interface Rule { id: string; ownerId: string; name: string; enabled: boolean; matcher: Matcher; sender: SenderFilter; burst: Burst; cooldownSec: number; skipIfSelf: boolean; channelIds: string[]; targetIds: string[]; updatedAt: number; }
+export interface Rule { id: string; ownerId: string; name: string; enabled: boolean; matcher: Matcher; sender: SenderFilter; burst: Burst; cooldownSec: number; skipIfSelf: boolean; skipReplies: boolean; channelIds: string[]; targetIds: string[]; updatedAt: number; }
 /** Delivery channel type. */
 export type TargetKind = 'discord' | 'discord_dm' | 'ntfy';
 /** A delivery destination owned by a user. */

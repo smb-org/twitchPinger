@@ -20,13 +20,14 @@ export interface Form {
   threshold: string; minPercent: string; activeWindowMin: '5' | '10' | '30'; windowSec: string; countBy: 'users' | 'messages';
   cdVal: string; cdUnit: 's' | 'min';
   skipIfSelf: boolean;
+  skipReplies: boolean;
   channelIds: string[]; targetIds: string[];
 }
 
 export const emptyForm = (): Form => ({
   name: '', enabled: true, mode: 'contains', pattern: '', blocks: null, caseSensitive: false,
   badges: [], logins: [], exclude: false, threshold: '1', minPercent: '', activeWindowMin: '10', windowSec: '60', countBy: 'users',
-  cdVal: '5', cdUnit: 'min', skipIfSelf: false, channelIds: [], targetIds: [],
+  cdVal: '5', cdUnit: 'min', skipIfSelf: false, skipReplies: false, channelIds: [], targetIds: [],
 });
 
 /** Marbles template: prefix "!play", 5 chatters / 60 s, cooldown 5 min. */
@@ -49,6 +50,7 @@ export function fromRule(r: Rule): Form {
     threshold: String(r.burst.threshold), minPercent: r.burst.minPercent ? String(r.burst.minPercent) : '', activeWindowMin: String(r.burst.activeWindowMin ?? 10) as Form['activeWindowMin'], windowSec: String(r.burst.windowSec), countBy: r.burst.countBy,
     cdVal: String(min ? r.cooldownSec / 60 : r.cooldownSec), cdUnit: min ? 'min' : 's',
     skipIfSelf: r.skipIfSelf,
+    skipReplies: r.skipReplies,
     channelIds: r.channelIds, targetIds: r.targetIds,
   };
 }
@@ -68,6 +70,7 @@ export function toBody(f: Form) {
     burst: { threshold: Number.isFinite(t) ? t : 1, ...(num(f.minPercent) > 0 ? { minPercent: num(f.minPercent) } : {}), ...(f.activeWindowMin === '10' ? {} : { activeWindowMin: Number(f.activeWindowMin) as 5 | 30 }), windowSec: Number.isFinite(w) ? w : 60, countBy: f.countBy },
     cooldownSec: Number.isFinite(c) ? Math.round(c) : 300,
     skipIfSelf: f.skipIfSelf,
+    skipReplies: f.skipReplies,
     channelIds: f.channelIds, targetIds: f.targetIds,
   };
 }
